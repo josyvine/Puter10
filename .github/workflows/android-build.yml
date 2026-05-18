@@ -19,19 +19,19 @@ jobs:
           distribution: 'temurin'
 
       # Build the APK using Gradle
-      # Removed all Keystore and Base64 environment variables as requested
+      # Logic: Changed from assembleRelease to assembleDebug
+      # This ensures the APK is automatically signed and installable on your phone
       - name: Build with Gradle
         uses: gradle/gradle-build-action@v2
         with:
           gradle-version: '8.0'
           cache-disabled: true
-          arguments: app:assembleRelease
+          arguments: app:assembleDebug
 
-      # Upload the generated APK
-      # Fixed the path to use a wildcard (*.apk) to ensure it finds the file
-      # even if it is named 'app-release-unsigned.apk'
+      # Upload the generated Debug APK
+      # Logic: Path updated to find the .apk file in the debug folder
       - name: Upload Puter Unofficial APK
         uses: actions/upload-artifact@v4
         with:
-          name: Puter-Unofficial-Release
-          path: app/build/outputs/apk/release/*.apk
+          name: Puter-Unofficial-Debug
+          path: app/build/outputs/apk/debug/*.apk
