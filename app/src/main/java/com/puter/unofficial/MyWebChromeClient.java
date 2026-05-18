@@ -3,19 +3,22 @@ package com.puter.unofficial;
 import android.app.Activity;
 import android.app.Dialog;
 import android.content.Intent;
+import android.graphics.Color;
 import android.net.Uri;
 import android.os.Message;
 import android.provider.MediaStore;
 import android.util.Log;
 import android.view.ViewGroup;
 import android.webkit.CookieManager;
+import android.webkit.JavascriptInterface;
 import android.webkit.ValueCallback;
 import android.webkit.WebChromeClient;
 import android.webkit.WebResourceRequest;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
-import android.widget.RelativeLayout;
+import android.widget.Button;
+import android.widget.LinearLayout;
 
 import androidx.core.content.FileProvider;
 
@@ -28,7 +31,7 @@ import java.util.Locale;
 /**
  * Handles the native file upload functionality (Camera, Gallery, File Picker)
  * for the WebView, enabling Base64 upload support for Puter AI interactions.
- * ADDED: Support for popup windows required by the Puter.js auth SDK.
+ * ADDED: Support for popup windows, auto-closing, and manual fallback required by the Puter.js auth SDK.
  */
 public class MyWebChromeClient extends WebChromeClient {
 
@@ -41,93 +44,138 @@ public class MyWebChromeClient extends WebChromeClient {
         this.activity = activity;
     }
 
-    // --- NEW: SDK AUTH POPUP HANDLER ---
+    // --- NEW: SDK AUTH POPUP HANDLER WITH AUTO-CLOSE & FALLBACK BUTTON ---
 
-    /**
-     * Handles the 'window.open()' call from puter.auth.signIn().
-     * This creates a new WebView in a Dialog to show the login page.
-     */
     @Override
     public boolean onCreateWindow(WebView view, boolean isDialog, boolean isUserGesture, Message resultMsg) {
         WebView.WebViewTransport transport = (WebView.WebViewTransport) resultMsg.obj;
 
-        // Create a new WebView for the popup
-        final WebView popupWebView = new WebView(activity);
+        // 1. Create a Layout to hold a Close Button + The Popup WebView
+        LinearLayout dialogLayout = new LinearLayout(activity);
+        dialogLayout.setOrientation(LinearLayout.VERTICAL);
+        dialogLayout.setBackgroundColor(Color.WHITE);
 
-        // Configure the popup WebView
+        // 2. Create a Fail-Safe "Done" Button
+        // If the auto-close fails or hangs on "Signing in...", the user can tap this to proceed.
+        Button closeButton = new Button(activity);
+        closeButton.setText("Close Window (Tap when Signed In)");
+        closeButton.setBackgroundColor(Color.parseColor("#1a73e8"));
+        closeButton.setTextColor(Color.WHITE);
+        closeButton.setOnClickListener(v -> closeAuthAndRefresh());
+        
+        dialogLayout.addView(closeButton, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, 
+                ViewGroup.LayoutParams.WRAP_CONTENT));
+
+        // 3. Create and configure the new WebView for the popup
+        final WebView popupWebView = new WebView(activity);
+        dialogLayout.addView(popupWebView, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, 
+                ViewGroup.LayoutParams.MATCH_PARENT));
+
         WebSettings webSettings = popupWebView.getSettings();
         webSettings.setJavaScriptEnabled(true);
         webSettings.setDomStorageEnabled(true);
         webSettings.setJavaScriptCanOpenWindowsAutomatically(true);
         webSettings.setSupportMultipleWindows(true);
 
-        // FIX: Bypass Google 403 "disallowed_useragent". 
-        // Google is strict. Removing "; wv" is no longer enough. We must completely spoof 
-        // a standard Chrome Mobile User-Agent to ensure Google OAuth loads perfectly inside the app.
+        // Bypass Google 403 "disallowed_useragent" using a standard Chrome UA
         String standardChromeUA = "Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/116.0.0.0 Mobile Safari/537.36";
         webSettings.setUserAgentString(standardChromeUA);
 
-        // FIX FOR HANGING SIGN-IN: Enable Third-Party Cookies so the session saves
+        // Enable Third-Party Cookies so the Puter session saves correctly
         CookieManager.getInstance().setAcceptCookie(true);
         CookieManager.getInstance().setAcceptThirdPartyCookies(popupWebView, true);
 
-        // FIX FOR HANGING SIGN-IN: Actively monitor the popup URL to detect success
+        // 4. Inject a Native Bridge specifically for the popup to auto-close itself
+        popupWebView.addJavascriptInterface(new Object() {
+            @JavascriptInterface
+            public void notifySuccess() {
+                Log.i(AppConstants.TAG_AUTH, "Popup JS Bridge detected auth token! Auto-closing.");
+                activity.runOnUiThread(() -> closeAuthAndRefresh());
+            }
+        }, "AndroidPopupBridge");
+
+        // 5. Monitor the popup for URL changes and inject the auto-close script
         popupWebView.setWebViewClient(new WebViewClient() {
             @Override
             public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
                 String url = request.getUrl().toString();
                 Log.d(AppConstants.TAG_AUTH, "Popup URL: " + url);
-
-                // The moment Puter hits the success token, we manually kill the popup
+                
+                // Active URL monitoring
                 if (url.contains(AppConstants.AUTH_TOKEN_PARAM) || url.contains(AppConstants.AUTH_SUCCESS_MARKER) || url.contains("auth_success")) {
-                    Log.i(AppConstants.TAG_AUTH, "Auth success detected! Manually closing popup.");
-
-                    CookieManager.getInstance().flush(); // Save cookies immediately
-                    AuthManager.getInstance(activity).setLoggedIn(true); // Save state
-
-                    // Kill the dialog
-                    if (authDialog != null && authDialog.isShowing()) {
-                        authDialog.dismiss();
-                        authDialog = null;
-                    }
-
-                    // Refresh the main app screen so it logs in
-                    if (activity instanceof MainActivity) {
-                        ((MainActivity) activity).reloadWebView();
-                    }
+                    Log.i(AppConstants.TAG_AUTH, "Auth success detected in URL! Manually closing popup.");
+                    closeAuthAndRefresh();
                     return true;
                 }
                 return false;
             }
-        });
 
-        // Let the popup handle its own closing if the SDK tries to close it via JS
-        popupWebView.setWebChromeClient(new WebChromeClient() {
             @Override
-            public void onCloseWindow(WebView window) {
-                if (authDialog != null && authDialog.isShowing()) {
-                    authDialog.dismiss();
-                    authDialog = null;
-                }
+            public void onPageFinished(WebView view, String url) {
+                super.onPageFinished(view, url);
+                CookieManager.getInstance().flush();
+                
+                // Inject an aggressive background script to check for successful login
+                // It looks for tokens in localStorage, which Puter uses when it says "Signing in..."
+                view.evaluateJavascript(
+                    "(function() {" +
+                    "   setInterval(function() {" +
+                    "       let success = false;" +
+                    "       for (let i = 0; i < localStorage.length; i++) {" +
+                    "           if (localStorage.key(i).includes('token') || localStorage.key(i).includes('puter')) {" +
+                    "               success = true; break;" +
+                    "           }" +
+                    "       }" +
+                    "       if (success || window.location.href.includes('auth_success')) {" +
+                    "           window.AndroidPopupBridge.notifySuccess();" +
+                    "       }" +
+                    "   }, 1500);" +
+                    "})();", null);
             }
         });
 
-        // Create a dialog to display the popup WebView
-        authDialog = new Dialog(activity, android.R.style.Theme_DeviceDefault_NoActionBar);
-        authDialog.setContentView(popupWebView);
-        authDialog.show();
+        // 6. Handle the official window.close() call from Puter SDK
+        popupWebView.setWebChromeClient(new WebChromeClient() {
+            @Override
+            public void onCloseWindow(WebView window) {
+                Log.i(AppConstants.TAG_AUTH, "Popup called window.close(). Completing login.");
+                closeAuthAndRefresh();
+            }
+        });
 
-        // Set the new WebView as the target for the transport
+        // 7. Show the Dialog
+        authDialog = new Dialog(activity, android.R.style.Theme_DeviceDefault_NoActionBar);
+        authDialog.setContentView(dialogLayout);
+        authDialog.show();
+        
         transport.setWebView(popupWebView);
         resultMsg.sendToTarget();
-
-        Log.d(AppConstants.TAG_AUTH, "onCreateWindow: Handled Puter auth popup with User-Agent & Cookie fix.");
+        
+        Log.d(AppConstants.TAG_AUTH, "onCreateWindow: Handled Puter auth popup completely.");
         return true;
     }
 
     /**
-     * Handles 'window.close()' from the auth popup after login is complete.
+     * Helper method to finalize authentication, dismiss popup, and refresh main UI.
      */
+    private void closeAuthAndRefresh() {
+        Log.i(AppConstants.TAG_AUTH, "Finalizing Auth and closing dialog.");
+        CookieManager.getInstance().flush(); // Save cookies permanently
+        AuthManager.getInstance(activity).setLoggedIn(true); // Persist state natively
+        
+        if (authDialog != null && authDialog.isShowing()) {
+            authDialog.dismiss();
+            authDialog = null;
+        }
+
+        // Refresh the main app screen to apply SDK session
+        if (activity instanceof MainActivity) {
+            ((MainActivity) activity).reloadWebView();
+        }
+    }
+
     @Override
     public void onCloseWindow(WebView window) {
         if (authDialog != null && authDialog.isShowing()) {
@@ -135,7 +183,7 @@ public class MyWebChromeClient extends WebChromeClient {
             authDialog = null;
         }
         super.onCloseWindow(window);
-        Log.d(AppConstants.TAG_AUTH, "onCloseWindow: Closed Puter auth popup.");
+        Log.d(AppConstants.TAG_AUTH, "onCloseWindow: Main window closed Puter auth popup.");
     }
 
     // --- EXISTING: FILE UPLOAD LOGIC (UNCHANGED) ---
