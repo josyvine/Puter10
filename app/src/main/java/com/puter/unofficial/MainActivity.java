@@ -58,6 +58,13 @@ public class MainActivity extends AppCompatActivity {
         webSettings.setJavaScriptCanOpenWindowsAutomatically(true);
         webSettings.setSupportMultipleWindows(true); // <-- REQUIRED FOR AUTH POPUP
 
+        // FIX: Bypass SDK initialization hangs (Loading models bug) by removing the WebView identifier ("; wv").
+        // This forces the Puter.js SDK to treat the app as a standard mobile browser, 
+        // allowing it to fire the puter.ready() event successfully.
+        String userAgent = webSettings.getUserAgentString();
+        userAgent = userAgent.replace("; wv", "");
+        webSettings.setUserAgentString(userAgent);
+
         // Ensure the WebView looks right on mobile viewports
         webSettings.setUseWideViewPort(true);
         webSettings.setLoadWithOverviewMode(true);
