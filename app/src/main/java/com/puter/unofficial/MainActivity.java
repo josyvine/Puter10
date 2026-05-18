@@ -9,6 +9,7 @@ import android.content.pm.PackageManager;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
+import android.webkit.CookieManager;
 import android.webkit.ValueCallback;
 import android.webkit.WebChromeClient;
 import android.webkit.WebSettings;
@@ -64,6 +65,12 @@ public class MainActivity extends AppCompatActivity {
         String userAgent = webSettings.getUserAgentString();
         userAgent = userAgent.replace("; wv", "");
         webSettings.setUserAgentString(userAgent);
+
+        // FIX FOR PUTER.JS AUTH: Enable Third Party Cookies for the main WebView.
+        // Without this, the session token generated in the popup will not be accessible to the main window.
+        CookieManager cookieManager = CookieManager.getInstance();
+        cookieManager.setAcceptCookie(true);
+        cookieManager.setAcceptThirdPartyCookies(webView, true);
 
         // Ensure the WebView looks right on mobile viewports
         webSettings.setUseWideViewPort(true);
