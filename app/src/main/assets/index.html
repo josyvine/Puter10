@@ -23,7 +23,29 @@
     .dropdown li:hover { background: #eee; }
 
     .settings-container { position: fixed; top: 60px; left: 0; width: 100%; background: #fff; z-index: 90; padding: 12px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); border-bottom: 1px solid #ddd; }
-    select { width: 100%; padding: 10px; font-size: 16px; height: 48px; border-radius: 8px; border: 1px solid #bbb; background-color: #fff; outline: none; }
+    
+    /* --- NEW CUSTOM ACCORDION SELECTOR CSS --- */
+    .custom-select-container { position: relative; width: 100%; z-index: 200; }
+    .custom-select-trigger { width: 100%; padding: 12px; font-size: 16px; border-radius: 8px; border: 1px solid #bbb; background-color: #fff; cursor: pointer; display: flex; justify-content: space-between; align-items: center; height: 48px; }
+    .custom-select-trigger:hover { background-color: #f9f9f9; }
+    .accordion-menu { position: absolute; top: 100%; left: 0; width: 100%; background: #fff; border: 1px solid #ccc; border-radius: 8px; margin-top: 5px; box-shadow: 0 4px 12px rgba(0,0,0,0.15); max-height: 60vh; overflow-y: auto; display: none; }
+    .accordion-menu.show { display: block; }
+    
+    .acc-section { border-bottom: 1px solid #eee; }
+    .acc-section:last-child { border-bottom: none; }
+    .acc-header { padding: 12px 15px; font-weight: bold; background: #f5f5f5; cursor: pointer; display: flex; justify-content: space-between; align-items: center; color: #333; }
+    .acc-header:hover { background: #ebebeb; }
+    .acc-content { display: none; background: #fff; }
+    .acc-content.open { display: block; }
+    
+    .acc-sub-header { padding: 10px 15px 10px 20px; font-weight: 600; color: #555; cursor: pointer; border-bottom: 1px solid #f9f9f9; display: flex; justify-content: space-between; align-items: center; }
+    .acc-sub-header:hover { background: #f0f0f0; }
+    .acc-sub-content { display: none; }
+    .acc-sub-content.open { display: block; }
+    
+    .model-item { padding: 12px 15px 12px 35px; cursor: pointer; border-bottom: 1px solid #f9f9f9; font-size: 15px; color: #444; }
+    .model-item:last-child { border-bottom: none; }
+    .model-item:hover { background: #e8f0fe; color: #1a73e8; }
 
     .chat-container { display: flex; flex-direction: column; flex: 1; width: 100%; position: relative; z-index: 5; padding: 15px; margin-top: 130px; margin-bottom: 80px; }
     .chat-log { flex: 1; width: 100%; }
@@ -125,9 +147,16 @@
   </header>
 
   <div class="settings-container" id="settingsBar">
-    <select id="puterModelSelect">
-      <option value="">Loading models...</option>
-    </select>
+    <!-- REPLACED <select> WITH CUSTOM ACCORDION UI -->
+    <div class="custom-select-container">
+      <div id="modelSelectTrigger" class="custom-select-trigger" onclick="toggleAccordionMenu()">
+        <span id="selectedModelText">Loading models...</span>
+        <span class="material-symbols-outlined">expand_more</span>
+      </div>
+      <div id="accordionMenu" class="accordion-menu">
+         <!-- Dynamically populated by JS -->
+      </div>
+    </div>
   </div>
 
   <div class="chat-container">
@@ -205,6 +234,7 @@
   <script>
     let currentImageData = null;
     let customInstruction = localStorage.getItem('puter_custom_ins') || "";
+    let globalSelectedModel = ""; // Replaces the select.value logic
 
     function handleInput() {
       const input = document.getElementById('puterChatInput');
@@ -216,19 +246,46 @@
       }
     }
 
-    // Toggle Dropdown Menu
+    // Advanced document click listener to close menus when clicking outside
+    document.onclick = (e) => {
+      // Handle 3-dot menu
+      if (!e.target.closest('#puterMenuButton') && !e.target.closest('#puterDropdownMenu')) {
+          document.getElementById('puterDropdownMenu').classList.remove('show');
+      }
+      // Handle custom accordion menu
+      if (!e.target.closest('.custom-select-container')) {
+          document.getElementById('accordionMenu').classList.remove('show');
+      }
+    };
+
     document.getElementById('puterMenuButton').onclick = (e) => {
       e.stopPropagation();
       document.getElementById('puterDropdownMenu').classList.toggle('show');
     };
-    document.onclick = () => document.getElementById('puterDropdownMenu').classList.remove('show');
 
     function openModal(id) { document.getElementById(id).style.display = 'flex'; }
     function closeModal(id) { document.getElementById(id).style.display = 'none'; }
 
-    // --- REBUILT LOGIC ---
+    // --- NEW CUSTOM ACCORDION UI LOGIC ---
 
-    // 1. Load Categorized Models from NATIVE BRIDGE (Uncoupled from SDK ready state)
+    function toggleAccordionMenu() {
+        document.getElementById('accordionMenu').classList.toggle('show');
+    }
+
+    function toggleAcc(elementId) {
+        const el = document.getElementById(elementId);
+        el.classList.toggle('open');
+    }
+
+    function selectModel(id, name) {
+        globalSelectedModel = id;
+        // Update the UI trigger text to show what was selected
+        document.getElementById('selectedModelText').textContent = name || id;
+        // Close the menu
+        document.getElementById('accordionMenu').classList.remove('show');
+    }
+
+    // 1. Load Categorized Models into Custom Slider UI
     function loadModels() {
       try {
         if (!window.AndroidInterface) {
@@ -243,46 +300,89 @@
         const providers = JSON.parse(jsonString);
 
         let allModels = [];
+        let categoriesSet = new Set();
+
+        // Flatten the data and collect unique categories
         for (const providerKey in providers) {
-            const providerModels = providers[providerKey].map(model => ({ ...model, provider: providerKey }));
+            const providerModels = providers[providerKey].map(model => {
+                // Ensure categories exist and add them to our Set
+                if(model.categories) {
+                    model.categories.forEach(cat => categoriesSet.add(cat));
+                }
+                return { ...model, provider: providerKey };
+            });
             allModels = allModels.concat(providerModels);
         }
 
-        const select = document.getElementById('puterModelSelect');
-        select.innerHTML = '';
+        // Sort all models A-Z
+        allModels.sort((a, b) => a.name.localeCompare(b.name));
 
-        const catMap = {
-          "all": "All Models (A-Z)",
-          "parent": "Parent Providers",
-          "text_chat": "Chat Models",
-          "reasoning": "Reasoning Models",
-          "vision": "Visionary / Image"
-        };
+        let html = '';
 
-        for (const [key, label] of Object.entries(catMap)) {
-          const group = document.createElement('optgroup');
-          group.label = label;
+        // --- SLIDER 1: ALL MODELS ---
+        html += `<div class="acc-section">
+                    <div class="acc-header" onclick="toggleAcc('acc-all')">All Models <span class="material-symbols-outlined" style="font-size:18px;">expand_more</span></div>
+                    <div id="acc-all" class="acc-content">`;
+        allModels.forEach(m => {
+            const safeName = (m.name || m.id).replace(/'/g, "\\'");
+            html += `<div class="model-item" onclick="selectModel('${m.id}', '${safeName}')">${m.name || m.id}</div>`;
+        });
+        html += `   </div>
+                 </div>`;
 
-          let filtered = [];
-          if (key === 'all') {
-            filtered = [...allModels].sort((a, b) => a.name.localeCompare(b.name));
-          } else if (key === 'parent') {
-            filtered = allModels.filter(m => ["gemini", "openai-completion", "claude"].includes(m.provider));
-          } else {
-            filtered = allModels.filter(m => m.categories.includes(key));
-          }
-
-          filtered.forEach(m => {
-            const opt = document.createElement('option');
-            opt.value = m.id;
-            opt.textContent = m.name;
-            group.appendChild(opt);
-          });
-          select.appendChild(group);
+        // --- SLIDER 2: BY PARENT/PROVIDER ---
+        html += `<div class="acc-section">
+                    <div class="acc-header" onclick="toggleAcc('acc-parents')">By Parent <span class="material-symbols-outlined" style="font-size:18px;">expand_more</span></div>
+                    <div id="acc-parents" class="acc-content">`;
+        for(const provider in providers) {
+            let pId = 'prov-' + provider.replace(/[^a-zA-Z0-9]/g, '-');
+            let displayName = provider.toUpperCase();
+            
+            html += `<div class="acc-sub-header" onclick="toggleAcc('${pId}')">${displayName} <span class="material-symbols-outlined" style="font-size:16px;">expand_more</span></div>
+                     <div id="${pId}" class="acc-sub-content">`;
+            
+            providers[provider].forEach(m => {
+                const safeName = (m.name || m.id).replace(/'/g, "\\'");
+                html += `<div class="model-item" onclick="selectModel('${m.id}', '${safeName}')">${m.name || m.id}</div>`;
+            });
+            html += `</div>`;
         }
+        html += `   </div>
+                 </div>`;
+
+        // --- SLIDER 3: BY CATEGORY ---
+        html += `<div class="acc-section">
+                    <div class="acc-header" onclick="toggleAcc('acc-cat')">By Category <span class="material-symbols-outlined" style="font-size:18px;">expand_more</span></div>
+                    <div id="acc-cat" class="acc-content">`;
+        categoriesSet.forEach(cat => {
+            let cId = 'cat-' + cat.replace(/[^a-zA-Z0-9]/g, '-');
+            let displayName = cat.replace(/_/g, ' ').toUpperCase();
+            
+            html += `<div class="acc-sub-header" onclick="toggleAcc('${cId}')">${displayName} <span class="material-symbols-outlined" style="font-size:16px;">expand_more</span></div>
+                     <div id="${cId}" class="acc-sub-content">`;
+            
+            allModels.filter(m => m.categories && m.categories.includes(cat)).forEach(m => {
+                const safeName = (m.name || m.id).replace(/'/g, "\\'");
+                html += `<div class="model-item" onclick="selectModel('${m.id}', '${safeName}')">${m.name || m.id}</div>`;
+            });
+            html += `</div>`;
+        });
+        html += `   </div>
+                 </div>`;
+
+        // Inject the built HTML into the container
+        document.getElementById('accordionMenu').innerHTML = html;
+
+        // Set the default selection to the very first model available if none is selected
+        if(allModels.length > 0) {
+            selectModel(allModels[0].id, allModels[0].name || allModels[0].id);
+        } else {
+            document.getElementById('selectedModelText').textContent = "No models available";
+        }
+
       } catch(e) { 
           console.error("Model load via bridge failed:", e); 
-          document.getElementById('puterModelSelect').innerHTML = `<option>Error: ${e.message}</option>`;
+          document.getElementById('selectedModelText').textContent = `Error: ${e.message}`;
       }
     }
 
@@ -296,7 +396,10 @@
 
       const input = document.getElementById('puterChatInput');
       const text = input.value.trim();
-      const model = document.getElementById('puterModelSelect').value;
+      
+      // Use the global variable from our custom slider instead of a select tag
+      const model = globalSelectedModel; 
+      
       if(!text && !currentImageData) return;
 
       appendChat("User", text || "[Image Uploaded]");
