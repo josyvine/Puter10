@@ -29,6 +29,7 @@ public class MainActivity extends AppCompatActivity {
     private ValueCallback<Uri[]> uploadMessage;
     private VoiceManager voiceManager;
     private WebAppInterface webAppInterface;
+    private MyWebChromeClient myWebChromeClient; // Use our custom client
 
     // Receiver to catch results from the Full-Screen Voice Agent Activity
     private BroadcastReceiver voiceReceiver;
@@ -55,6 +56,7 @@ public class MainActivity extends AppCompatActivity {
         webSettings.setDatabaseEnabled(true);
         webSettings.setMixedContentMode(WebSettings.MIXED_CONTENT_ALWAYS_ALLOW);
         webSettings.setJavaScriptCanOpenWindowsAutomatically(true);
+        webSettings.setSupportMultipleWindows(true); // <-- REQUIRED FOR AUTH POPUP
 
         // Ensure the WebView looks right on mobile viewports
         webSettings.setUseWideViewPort(true);
@@ -64,26 +66,9 @@ public class MainActivity extends AppCompatActivity {
         // Uses the PuterWebViewClient to intercept login redirects
         webView.setWebViewClient(new PuterWebViewClient(this));
 
-        // --- WebChromeClient for File/Image Uploads (Camera/Gallery) ---
-        webView.setWebChromeClient(new WebChromeClient() {
-            @Override
-            public boolean onShowFileChooser(WebView webView, ValueCallback<Uri[]> filePathCallback, FileChooserParams fileChooserParams) {
-                if (uploadMessage != null) {
-                    uploadMessage.onReceiveValue(null);
-                    uploadMessage = null;
-                }
-                uploadMessage = filePathCallback;
-
-                Intent intent = fileChooserParams.createIntent();
-                try {
-                    startActivityForResult(intent, FILE_CHOOSER_RESULT_CODE);
-                } catch (Exception e) {
-                    uploadMessage = null;
-                    return false;
-                }
-                return true;
-            }
-        });
+        // --- WebChromeClient for File Uploads AND AUTH POPUPS ---
+        myWebChromeClient = new MyWebChromeClient(this);
+        webView.setWebChromeClient(myWebChromeClient);
 
         // --- Initialize Native Managers ---
         voiceManager = new VoiceManager(this, webView);
@@ -95,10 +80,10 @@ public class MainActivity extends AppCompatActivity {
 
         // --- JavaScript Interface Bridge ---
         // Exposes 'window.AndroidInterface' to index.html
-        webView.addJavascriptInterface(webAppInterface, "AndroidInterface");
+        webView.addJavascriptInterface(webAppInterface, AppConstants.JS_BRIDGE_NAME);
 
         // Load the Puter Unofficial frontend
-        webView.loadUrl("file:///android_asset/index.html");
+        webView.loadUrl(AppConstants.LOCAL_INDEX_URL);
 
         // --- Voice Results Setup ---
         setupVoiceReceiver();
@@ -135,7 +120,7 @@ public class MainActivity extends AppCompatActivity {
     private void injectSpeechToWebView(String text) {
         String safeText = text.replace("'", "\\'");
         webView.post(() -> webView.evaluateJavascript(
-                "if(window.onSpeechResult) { window.onSpeechResult('" + safeText + "'); }", 
+                "if(window.onSpeechResult) { window.onSpeechResult('" + safeText + "'); }",
                 null)
         );
     }
@@ -185,12 +170,13 @@ public class MainActivity extends AppCompatActivity {
     @Override
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
-        if (requestCode == FILE_CHOOSER_RESULT_CODE) {
-            if (uploadMessage == null) return;
-            uploadMessage.onReceiveValue(WebChromeClient.FileChooserParams.parseResult(resultCode, data));
-            uploadMessage = null;
+        // Delegate the result to our custom WebChromeClient
+        if (myWebChromeClient != null) {
+            myWebChromeClient.onActivityResult(requestCode, resultCode, data);
         }
+        // Handle other activity results if needed
     }
+
 
     /**
      * Required by SettingsFragment to refresh the UI when the user signs out.
