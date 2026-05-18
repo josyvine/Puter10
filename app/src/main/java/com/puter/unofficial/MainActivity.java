@@ -15,6 +15,7 @@ import android.webkit.WebChromeClient;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.widget.Toast;
+import android.util.Log;
 
 import androidx.annotation.NonNull;
 import androidx.appcompat.app.AppCompatActivity;
@@ -51,6 +52,11 @@ public class MainActivity extends AppCompatActivity {
 
         webView = findViewById(R.id.webView);
 
+        // FIX: Enable Remote Debugging. This allows you to see the console via Chrome DevTools.
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.KITKAT) {
+            WebView.setWebContentsDebuggingEnabled(true);
+        }
+
         // --- WebView Configuration (Thoroughly Maintained) ---
         WebSettings webSettings = webView.getSettings();
         webSettings.setJavaScriptEnabled(true);
@@ -61,6 +67,11 @@ public class MainActivity extends AppCompatActivity {
         webSettings.setMixedContentMode(WebSettings.MIXED_CONTENT_ALWAYS_ALLOW);
         webSettings.setJavaScriptCanOpenWindowsAutomatically(true);
         webSettings.setSupportMultipleWindows(true); // <-- REQUIRED FOR AUTH POPUP
+
+        // FIX: Allow scripts from local assets to access other content. 
+        // This is required for debug_console.js to function correctly.
+        webSettings.setAllowFileAccessFromFileURLs(true);
+        webSettings.setAllowUniversalAccessFromFileURLs(true);
 
         // FIX: Bypass SDK initialization hangs (Loading models bug) by removing the WebView identifier ("; wv").
         // This forces the Puter.js SDK to treat the app as a standard mobile browser, 
@@ -80,7 +91,7 @@ public class MainActivity extends AppCompatActivity {
         webSettings.setLoadWithOverviewMode(true);
 
         // --- WebViewClient for Auth Persistence ---
-        // Uses the PuterWebViewClient to intercept login redirects
+        // Uses the PuterWebViewClient to intercept login redirects and handle AssetLoader routing
         webView.setWebViewClient(new PuterWebViewClient(this));
 
         // --- WebChromeClient for File Uploads AND AUTH POPUPS ---
@@ -99,7 +110,7 @@ public class MainActivity extends AppCompatActivity {
         // Exposes 'window.AndroidInterface' to index.html
         webView.addJavascriptInterface(webAppInterface, AppConstants.JS_BRIDGE_NAME);
 
-        // Load the Puter Unofficial frontend
+        // Load the Puter Unofficial frontend via the new HTTPS Asset origin
         webView.loadUrl(AppConstants.LOCAL_INDEX_URL);
 
         // --- Voice Results Setup ---
