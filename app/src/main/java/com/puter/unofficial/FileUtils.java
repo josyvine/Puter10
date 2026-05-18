@@ -1,48 +1,60 @@
 package com.puter.unofficial;
 
+import android.content.ContentResolver;
 import android.content.Context;
 import android.net.Uri;
 import android.util.Base64;
 import android.util.Log;
+import android.webkit.MimeTypeMap;
 
 import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
 
 /**
- * Utility class to handle general file operations.
- * Converts documents, text files, and other non-image attachments 
- * into Base64 strings for direct injection into the Puter.js chat logic.
+ * Refined Utility class to handle general file operations.
+ * Converts documents, text files, and other attachments into Data URIs
+ * for direct injection into the Puter.js chat logic.
  */
 public class FileUtils {
 
     private static final String TAG = "PuterFileUtils";
 
     /**
-     * Reads a file from a given Uri and encodes its entire content to a Base64 string.
+     * Reads a file and encodes it to a Base64 Data URI.
+     * Format: data:[mime/type];base64,[data]
      * 
-     * @param context App context to access ContentResolver.
-     * @param fileUri The Uri of the file selected via the native file picker.
-     * @return Base64 encoded string of the file content, or null if an error occurs.
+     * @param context App context.
+     * @param fileUri The Uri from the file picker.
+     * @return Full Data URI string, or null if an error occurs.
      */
-    public static String fileToBase64(Context context, Uri fileUri) {
+    public static String fileToDataUri(Context context, Uri fileUri) {
         InputStream inputStream = null;
         try {
-            inputStream = context.getContentResolver().openInputStream(fileUri);
+            ContentResolver contentResolver = context.getContentResolver();
+            String mimeType = contentResolver.getType(fileUri);
+            
+            // Fallback for mime type if content resolver fails
+            if (mimeType == null) {
+                mimeType = getMimeType(context, fileUri);
+            }
+
+            inputStream = contentResolver.openInputStream(fileUri);
             byte[] buffer = new byte[8192];
             int bytesRead;
             ByteArrayOutputStream output = new ByteArrayOutputStream();
-            
+
             while ((bytesRead = inputStream.read(buffer)) != -1) {
                 output.write(buffer, 0, bytesRead);
             }
 
             byte[] fileBytes = output.toByteArray();
-            
-            // Encode bytes to Base64
-            return Base64.encodeToString(fileBytes, Base64.NO_WRAP);
+            String base64Data = Base64.encodeToString(fileBytes, Base64.NO_WRAP);
+
+            // Return as a standard Data URI so Puter.js knows how to handle it
+            return "data:" + mimeType + ";base64," + base64Data;
 
         } catch (Exception e) {
-            Log.e(TAG, "Failed to convert file to Base64: " + e.getMessage());
+            Log.e(TAG, "Failed to convert file to Data URI: " + e.getMessage());
             return null;
         } finally {
             if (inputStream != null) {
@@ -56,7 +68,23 @@ public class FileUtils {
     }
 
     /**
-     * Extracts the file name from a Uri (if needed for logging or UI).
+     * Helper to resolve MIME type from Uri or File Extension.
+     */
+    public static String getMimeType(Context context, Uri uri) {
+        String mimeType;
+        if (ContentResolver.SCHEME_CONTENT.equals(uri.getScheme())) {
+            ContentResolver cr = context.getContentResolver();
+            mimeType = cr.getType(uri);
+        } else {
+            String fileExtension = MimeTypeMap.getFileExtensionFromUrl(uri.toString());
+            mimeType = MimeTypeMap.getSingleton().getMimeTypeFromExtension(
+                    fileExtension.toLowerCase());
+        }
+        return mimeType != null ? mimeType : "application/octet-stream";
+    }
+
+    /**
+     * Extracts the readable file name from a Uri.
      */
     public static String getFileName(Context context, Uri uri) {
         String result = null;
