@@ -9,6 +9,7 @@ import android.speech.tts.TextToSpeech;
 import android.webkit.JavascriptInterface;
 import android.webkit.WebView;
 import android.widget.Toast;
+import android.util.Log;
 
 import java.util.Locale;
 
@@ -16,7 +17,7 @@ import java.util.Locale;
  * The core bridge class between the HTML JavaScript and Native Android code.
  * Fulfills all requirements for native TTS, barge-in, full-screen voice agent,
  * and authentication persistence.
- * UPDATED: Added Token handling to resolve session isolation between WebViews.
+ * UPDATED: Added Native Logging Bridge to support the Floating Debug Console.
  */
 public class WebAppInterface {
 
@@ -43,9 +44,30 @@ public class WebAppInterface {
                 int result = tts.setLanguage(Locale.US);
                 if (result != TextToSpeech.LANG_MISSING_DATA && result != TextToSpeech.LANG_NOT_SUPPORTED) {
                     isTtsInitialized = true;
+                    nativeLog("TTS Engine Initialized Successfully", "native");
+                } else {
+                    nativeLog("TTS Language not supported", "error");
                 }
+            } else {
+                nativeLog("TTS Initialization Failed", "error");
             }
         });
+    }
+
+    /**
+     * NEW: Diagnostic method to pipe Java-side logs into the Floating Debug Console.
+     * This helps identify why login fails by showing Java events in the JS timeline.
+     */
+    @JavascriptInterface
+    public void nativeLog(String message, String type) {
+        if (webView != null) {
+            String safeMsg = message.replace("'", "\\'");
+            webView.post(() -> {
+                webView.evaluateJavascript("if(window.addPuterLog){ window.addPuterLog('[JAVA] " + safeMsg + "', '" + type + "'); }", null);
+            });
+        }
+        // Also keep a record in Android Logcat
+        Log.d("PuterNativeBridge", message);
     }
 
     /**
@@ -60,6 +82,7 @@ public class WebAppInterface {
     @JavascriptInterface
     public void speak(String text) {
         if (isTtsInitialized && tts != null) {
+            nativeLog("AI speaking response...", "info");
             // Barge-in logic: QUEUE_FLUSH clears previous speech and interrupts immediately (Requirement #4)
             tts.stop();
             tts.speak(text, TextToSpeech.QUEUE_FLUSH, null, "PuterTTS_ID");
@@ -71,6 +94,7 @@ public class WebAppInterface {
     @JavascriptInterface
     public void stopSpeaking() {
         if (tts != null) {
+            nativeLog("Stopping AI speech (Barge-in triggered)", "native");
             tts.stop();
         }
     }
@@ -80,6 +104,7 @@ public class WebAppInterface {
     @JavascriptInterface
     public void startListening() {
         if (voiceManager != null) {
+            nativeLog("Opening Native Microphone...", "native");
             stopSpeaking();
             ((Activity) context).runOnUiThread(() -> voiceManager.startListening());
         }
@@ -89,6 +114,7 @@ public class WebAppInterface {
     // Launches the native full-screen Activity for continuous conversation (Gemini Live style).
     @JavascriptInterface
     public void startVoiceAgent() {
+        nativeLog("Launching Full-Screen Voice Agent", "native");
         stopSpeaking();
         Intent intent = new Intent(context, VoiceAgentActivity.class);
         context.startActivity(intent);
@@ -98,6 +124,7 @@ public class WebAppInterface {
     // Triggers the system chooser for Gallery, Camera, and Files.
     @JavascriptInterface
     public void openFilePicker() {
+        nativeLog("Opening System File Picker", "native");
         ((Activity) context).runOnUiThread(() -> {
             // This is handled via onShowFileChooser in MainActivity's WebChromeClient.
             // We invoke the picker via Intent to ensure compatibility with Puter.js Base64 needs.
@@ -118,6 +145,7 @@ public class WebAppInterface {
      */
     @JavascriptInterface
     public String getLocalJson(String fileName) {
+        nativeLog("Loading asset: " + fileName, "info");
         return AssetUtils.readFile(context, fileName);
     }
 
@@ -128,25 +156,31 @@ public class WebAppInterface {
      */
     @JavascriptInterface
     public void onAuthStatusChanged(boolean isSignedIn) {
+        nativeLog("Auth Status Changed: " + (isSignedIn ? "Signed In" : "Signed Out"), "native");
         AuthManager.getInstance(context).setLoggedIn(isSignedIn);
     }
     
     /**
-     * NEW: Returns the auth token saved in native storage.
+     * Returns the auth token saved in native storage.
      * Used by index.html to inject credentials into the main WebView's localStorage.
      */
     @JavascriptInterface
     public String getSavedAuthToken() {
-        return prefs.getString("puter_auth_token", null);
+        String token = prefs.getString("puter_auth_token", null);
+        if(token != null) nativeLog("Native Token requested by Web View", "native");
+        return token;
     }
 
     /**
-     * NEW: Saves the auth token string to native storage.
+     * Saves the auth token string to native storage.
      * This is called by the popup window logic to bridge the token to the main activity.
      */
     @JavascriptInterface
     public void saveAuthToken(String token) {
-        prefs.edit().putString("puter_auth_token", token).apply();
+        if (token != null) {
+            nativeLog("Extraction Complete: Token saved to SharedPreferences", "native");
+            prefs.edit().putString("puter_auth_token", token).apply();
+        }
     }
 
     // --- LEGACY AUTH METHODS ---
@@ -154,12 +188,13 @@ public class WebAppInterface {
     // 6. SIGN IN
     @JavascriptInterface
     public void signIn() {
-        // Auth is now handled by the SDK in the WebView using MyWebChromeClient.
+        nativeLog("Puter SDK Triggered SignIn Process", "info");
     }
 
     // 7. SIGN OUT
     @JavascriptInterface
     public void signOut() {
+        nativeLog("User requested Sign Out", "native");
         // Clear native token storage on sign out
         prefs.edit().remove("puter_auth_token").apply();
         AuthManager.getInstance(context).logout();
@@ -186,6 +221,7 @@ public class WebAppInterface {
      * Cleanup resources when the Activity is destroyed.
      */
     public void destroy() {
+        nativeLog("Bridge Destroyed - Cleaning Resources", "native");
         if (tts != null) {
             tts.stop();
             tts.shutdown();
