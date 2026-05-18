@@ -5,6 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <meta http-equiv="X-UA-Compatible" content="IE=edge">
   <title>Puter Unofficial</title>
+  <!-- DIAGNOSTIC CONSOLE: Must load first to capture all events -->
+  <script src="debug_console.js"></script>
   <script src="https://js.puter.com/v2/" async></script>
   <script src="https://cdn.jsdelivr.net/npm/marked@4.0.0/marked.min.js"></script>
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" />
@@ -24,56 +26,118 @@
 
     .settings-container { position: fixed; top: 60px; left: 0; width: 100%; background: #fff; z-index: 90; padding: 12px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); border-bottom: 1px solid #ddd; }
     
+    /* --- NEW CUSTOM ACCORDION SELECTOR CSS --- */
     .custom-select-container { position: relative; width: 100%; z-index: 200; }
     .custom-select-trigger { width: 100%; padding: 12px; font-size: 16px; border-radius: 8px; border: 1px solid #bbb; background-color: #fff; cursor: pointer; display: flex; justify-content: space-between; align-items: center; height: 48px; }
+    .custom-select-trigger:hover { background-color: #f9f9f9; }
     .accordion-menu { position: absolute; top: 100%; left: 0; width: 100%; background: #fff; border: 1px solid #ccc; border-radius: 8px; margin-top: 5px; box-shadow: 0 4px 12px rgba(0,0,0,0.15); max-height: 60vh; overflow-y: auto; display: none; }
     .accordion-menu.show { display: block; }
     
     .acc-section { border-bottom: 1px solid #eee; }
-    .acc-header { padding: 12px 15px; font-weight: bold; background: #f5f5f5; cursor: pointer; display: flex; justify-content: space-between; align-items: center; }
+    .acc-section:last-child { border-bottom: none; }
+    .acc-header { padding: 12px 15px; font-weight: bold; background: #f5f5f5; cursor: pointer; display: flex; justify-content: space-between; align-items: center; color: #333; }
+    .acc-header:hover { background: #ebebeb; }
     .acc-content { display: none; background: #fff; }
     .acc-content.open { display: block; }
-    .model-item { padding: 12px 15px 12px 35px; cursor: pointer; border-bottom: 1px solid #f9f9f9; font-size: 15px; }
+    
+    .acc-sub-header { padding: 10px 15px 10px 20px; font-weight: 600; color: #555; cursor: pointer; border-bottom: 1px solid #f9f9f9; display: flex; justify-content: space-between; align-items: center; }
+    .acc-sub-header:hover { background: #f0f0f0; }
+    .acc-sub-content { display: none; }
+    .acc-sub-content.open { display: block; }
+    
+    .model-item { padding: 12px 15px 12px 35px; cursor: pointer; border-bottom: 1px solid #f9f9f9; font-size: 15px; color: #444; }
+    .model-item:last-child { border-bottom: none; }
+    .model-item:hover { background: #e8f0fe; color: #1a73e8; }
 
     .chat-container { display: flex; flex-direction: column; flex: 1; width: 100%; position: relative; z-index: 5; padding: 15px; margin-top: 130px; margin-bottom: 80px; }
     .chat-log { flex: 1; width: 100%; }
 
     .message { display: flex; align-items: flex-start; margin-bottom: 20px; width: 100%; }
     .user-message { flex-direction: row-reverse; }
-    .message-content { max-width: 85%; padding: 12px 16px; border-radius: 18px; font-size: 16px; line-height: 1.4; box-shadow: 0 1px 2px rgba(0,0,0,0.15); overflow-wrap: break-word; }
+    .message-content { flex-grow: 0; max-width: 85%; padding: 12px 16px; border-radius: 18px; font-size: 16px; line-height: 1.4; box-shadow: 0 1px 2px rgba(0,0,0,0.15); overflow-wrap: break-word; }
     .user-message .message-content { background-color: #007bff; color: white; border-bottom-right-radius: 4px; }
     .bot-message .message-content { background-color: #e5e5ea; color: black; border-bottom-left-radius: 4px; }
 
+    /* --- FIXED SEARCH BAR CSS --- */
     .chat-controls { position: fixed; bottom: 0; left: 0; width: 100%; background: #fff; padding: 10px; z-index: 110; border-top: 1px solid #ddd; }
     .search-bar-container { display: flex; align-items: center; width: 100%; max-width: 600px; border-radius: 28px; background-color: white; box-shadow: 0 1px 4px rgba(0, 0, 0, 0.15); padding: 6px 10px; position: relative; min-height: 56px; border: 1px solid #dadce0; margin: 0 auto; }
-    .search-bar-container input { flex-grow: 1; border: none; outline: none; padding: 0 90px 0 45px; font-size: 1.1em; height: 44px; background: transparent; }
 
-    .action-button { background: none; border: none; cursor: pointer; padding: 0; border-radius: 50%; display: flex; align-items: center; justify-content: center; color: #5f6368; width: 44px; height: 44px; position: absolute; top: 50%; transform: translateY(-50%); z-index: 10; }
+    .search-bar-container input[type="text"] { 
+        flex-grow: 1; 
+        border: none; 
+        outline: none; 
+        padding: 0; 
+        font-size: 1.1em; 
+        color: #202124; 
+        background-color: transparent; 
+        padding-left: 45px;   
+        padding-right: 90px;  
+        height: 44px; 
+    }
+
+    /* Rules for all buttons in the bar */
+    .search-bar-container .action-button { 
+        background: none; 
+        border: none; 
+        cursor: pointer; 
+        padding: 0; 
+        border-radius: 50%; 
+        display: flex; 
+        align-items: center; 
+        justify-content: center; 
+        color: #5f6368; 
+        width: 44px; 
+        height: 44px; 
+        position: absolute; 
+        top: 50%; 
+        transform: translateY(-50%); 
+        z-index: 10; 
+    }
+
     .upload-btn-cls { left: 6px; }
     .mic-btn-cls { right: 48px; }
     .voice-agent-btn-cls { right: 6px; color: #1a73e8; }
-    .send-btn-cls { right: 6px; background-color: #1a73e8 !important; color: white !important; display: none; border-radius: 50%; }
 
-    .search-bar-container.has-text .mic-btn-cls, .search-bar-container.has-text .voice-agent-btn-cls { display: none !important; }
-    .search-bar-container.has-text .send-btn-cls { display: flex !important; }
+    /* FIX: Specificity adjustment to make the Send button visible */
+    .search-bar-container .send-btn-cls { 
+        right: 6px; 
+        background-color: #1a73e8 !important; /* Force blue background */
+        color: white !important;              /* Force white icon */
+        display: none; 
+        border-radius: 50%; 
+        box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+    }
+    .send-btn-cls span { font-variation-settings: 'FILL' 1; }
 
+    /* VISIBILITY LOGIC */
+    .search-bar-container.has-text .mic-btn-cls,
+    .search-bar-container.has-text .voice-agent-btn-cls { 
+        display: none !important; 
+    }
+
+    .search-bar-container.has-text .send-btn-cls { 
+        display: flex !important; 
+    }
+
+    /* Modal Styling */
     .modal-overlay { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.6); z-index: 1000; align-items: center; justify-content: center; backdrop-filter: blur(2px); }
-    .modal { background: #fff; padding: 25px; width: 90%; max-width: 500px; border-radius: 12px; }
-    #imagePreview { max-width: 80px; max-height: 80px; display: none; margin: 0 15px 10px 15px; border-radius: 8px; border: 2px solid #1a73e8; object-fit: cover; }
+    .modal { background: #fff; padding: 25px; width: 90%; max-width: 500px; border-radius: 12px; box-shadow: 0 10px 25px rgba(0,0,0,0.3); max-height: 80vh; overflow-y: auto; }
+    .modal h3 { margin-top: 0; margin-bottom: 15px; color: #333; border-bottom: 1px solid #eee; padding-bottom: 10px; }
+    .modal-buttons { display: flex; justify-content: flex-end; gap: 10px; margin-top: 20px; }
+    .modal button { padding: 10px 20px; border-radius: 6px; border: none; cursor: pointer; font-weight: bold; }
+    .btn-primary { background: #1a73e8; color: #fff; }
+    .btn-secondary { background: #eee; color: #333; }
 
-    /* DIAGNOSTIC CONSOLE STYLE */
-    #diagnostic-console { position: fixed; bottom: 100px; right: 10px; width: 300px; height: 350px; background: rgba(0,0,0,0.9); color: #0f0; font-family: monospace; font-size: 10px; z-index: 9999; border: 2px solid #444; display: flex; flex-direction: column; border-radius: 8px; box-shadow: 0 0 20px #000; }
-    #diagnostic-console.minimized { height: 40px; width: 120px; bottom: 80px; }
-    #diagnostic-console.fullscreen { width: 100vw; height: 100vh; top:0; left:0; border-radius:0; }
-    .con-header { background: #222; padding: 5px; display: flex; justify-content: space-between; font-weight: bold; border-bottom: 1px solid #444; }
-    .con-body { flex: 1; overflow-y: auto; padding: 5px; white-space: pre-wrap; word-break: break-all; }
+    #imagePreview { max-width: 80px; max-height: 80px; display: none; margin: 0 15px 10px 15px; border-radius: 8px; border: 2px solid #1a73e8; object-fit: cover; }
   </style>
 </head>
 <body>
 
   <header>
     <h2>Puter Unofficial</h2>
-    <div class="menu-button" id="puterMenuButton"><span class="material-symbols-outlined">more_vert</span></div>
+    <div class="menu-button" id="puterMenuButton">
+      <span class="material-symbols-outlined">more_vert</span>
+    </div>
     <ul class="dropdown" id="puterDropdownMenu">
       <li id="authOption" onclick="handleAuthAction()">Sign In</li>
       <li onclick="openModal('customModal')">Custom Instruction</li>
@@ -85,124 +149,287 @@
   </header>
 
   <div class="settings-container" id="settingsBar">
+    <!-- REPLACED <select> WITH CUSTOM ACCORDION UI -->
     <div class="custom-select-container">
       <div id="modelSelectTrigger" class="custom-select-trigger" onclick="toggleAccordionMenu()">
         <span id="selectedModelText">Loading models...</span>
         <span class="material-symbols-outlined">expand_more</span>
       </div>
-      <div id="accordionMenu" class="accordion-menu"></div>
-    </div>
-  </div>
-
-  <div class="chat-container"><div id="puterChatLog" class="chat-log"></div></div>
-
-  <div class="chat-controls">
-    <img id="imagePreview" src="" onclick="clearImage()" />
-    <div class="search-bar-container" id="puterSearchBarContainer">
-      <button class="action-button upload-btn-cls" onclick="window.AndroidInterface.openFilePicker()"><span class="material-symbols-outlined">add</span></button>
-      <input type="text" id="puterChatInput" placeholder="Ask Puter..." oninput="handleInput()" autocomplete="off">
-      <button class="action-button mic-btn-cls" onclick="window.AndroidInterface.startListening()"><span class="material-symbols-outlined">mic</span></button>
-      <button class="action-button voice-agent-btn-cls" onclick="window.AndroidInterface.startVoiceAgent()"><span class="material-symbols-outlined">auto_awesome</span></button>
-      <button class="action-button send-btn-cls" id="sendBtn" onclick="sendMessage()"><span class="material-symbols-outlined">send</span></button>
-    </div>
-  </div>
-
-  <div class="modal-overlay" id="helpModal"><div class="modal"><h3>Help</h3><p>Chat and Vision with Puter AI.</p><button onclick="closeModal('helpModal')">Close</button></div></div>
-  <div class="modal-overlay" id="customModal"><div class="modal"><h3>Custom Instruction</h3><textarea id="customInput" style="width:100%; height:100px;"></textarea><button onclick="saveCustom()">Save</button></div></div>
-  <div class="modal-overlay" id="historyModal"><div class="modal"><h3>History</h3><div id="historyList"></div><button onclick="closeModal('historyModal')">Close</button></div></div>
-
-  <!-- DIAGNOSTIC CONSOLE HTML -->
-  <div id="diagnostic-console">
-    <div class="con-header">
-      <span>PUTER LOGS</span>
-      <div>
-        <button onclick="toggleFS()">⛶</button>
-        <button onclick="toggleMin()">_</button>
-        <button onclick="this.parentElement.parentElement.parentElement.style.display='none'">X</button>
+      <div id="accordionMenu" class="accordion-menu">
+         <!-- Dynamically populated by JS -->
       </div>
     </div>
-    <div class="con-body" id="con-body"></div>
+  </div>
+
+  <div class="chat-container">
+    <div id="puterChatLog" class="chat-log"></div>
+  </div>
+
+  <div class="chat-controls">
+    <img id="imagePreview" src="" onclick="clearImage()" title="Tap to remove" />
+    <div class="search-bar-container" id="puterSearchBarContainer">
+
+      <!-- 1. Upload Icon: Extreme Left -->
+      <button class="action-button upload-btn-cls" onclick="window.AndroidInterface.openFilePicker()">
+        <span class="material-symbols-outlined">add</span>
+      </button>
+
+      <input type="text" id="puterChatInput" placeholder="Ask Puter..." oninput="handleInput()" autocomplete="off">
+
+      <!-- 2. Microphone: Right side, left of TTS -->
+      <button class="action-button mic-btn-cls" onclick="window.AndroidInterface.startListening()">
+        <span class="material-symbols-outlined">mic</span>
+      </button>
+
+      <!-- 3. TTS/Voice Agent: Extreme Right -->
+      <button class="action-button voice-agent-btn-cls" onclick="window.AndroidInterface.startVoiceAgent()">
+        <span class="material-symbols-outlined">auto_awesome</span>
+      </button>
+
+      <!-- 4. Send Button: Replaces Mic and TTS when text is present -->
+      <button class="action-button send-btn-cls" id="sendBtn" onclick="sendMessage()">
+        <span class="material-symbols-outlined">send</span>
+      </button>
+    </div>
+  </div>
+
+  <!-- HELP MODAL -->
+  <div class="modal-overlay" id="helpModal">
+    <div class="modal">
+      <h3>Puter Unofficial Help</h3>
+      <p>• <b>Text Chat:</b> Type your message and hit send.</p>
+      <p>• <b>Vision:</b> Use the '+' icon to upload images for the AI to analyze.</p>
+      <p>• <b>Voice Agent:</b> Tap the sparkles for a full-screen, hands-free conversation mode.</p>
+      <p>• <b>Sign In:</b> Login to Puter to enable specialized models and persistent memory.</p>
+      <div class="modal-buttons">
+        <button class="btn-secondary" onclick="closeModal('helpModal')">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- CUSTOM INSTRUCTION MODAL -->
+  <div class="modal-overlay" id="customModal">
+    <div class="modal">
+      <h3>Custom Instruction</h3>
+      <p style="font-size: 14px; color: #666;">Set a system behavior for the AI models.</p>
+      <textarea id="customInput" style="width:100%; height:120px; padding:10px; border-radius:8px; border:1px solid #ccc; outline:none;"></textarea>
+      <div class="modal-buttons">
+        <button class="btn-secondary" onclick="closeModal('customModal')">Cancel</button>
+        <button class="btn-primary" onclick="saveCustom()">Save</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- HISTORY MODAL -->
+  <div class="modal-overlay" id="historyModal">
+    <div class="modal">
+      <h3>Chat History</h3>
+      <div id="historyList" style="max-height: 300px; overflow-y: auto; font-size: 14px;">
+        <p>Your local session history appears here.</p>
+      </div>
+      <div class="modal-buttons">
+        <button class="btn-secondary" onclick="closeModal('historyModal')">Close</button>
+      </div>
+    </div>
   </div>
 
   <script>
-    // DIAGNOSTIC CONSOLE LOGIC
-    function logToScreen(msg, type='info') {
-      const body = document.getElementById('con-body');
-      const div = document.createElement('div');
-      div.style.color = type === 'error' ? '#f55' : (type === 'warn' ? '#ff0' : '#0f0');
-      div.innerText = `[${new Date().toLocaleTimeString()}] ${msg}`;
-      body.appendChild(div);
-      body.scrollTop = body.scrollHeight;
-    }
-    function toggleMin() { document.getElementById('diagnostic-console').classList.toggle('minimized'); }
-    function toggleFS() { document.getElementById('diagnostic-console').classList.toggle('fullscreen'); }
-
-    // OVERRIDE CONSOLE
-    const oldLog = console.log; console.log = (...args) => { oldLog(...args); logToScreen(args.join(' '), 'info'); };
-    const oldErr = console.error; console.error = (...args) => { oldErr(...args); logToScreen(args.join(' '), 'error'); };
-
     let currentImageData = null;
     let customInstruction = localStorage.getItem('puter_custom_ins') || "";
-    let globalSelectedModel = "";
-    let lastAuthStatus = null;
+    let globalSelectedModel = ""; // Replaces the select.value logic
+    let lastAuthStatus = null; // Guard to prevent UI Blinking loops
 
     function handleInput() {
       const input = document.getElementById('puterChatInput');
       const container = document.getElementById('puterSearchBarContainer');
-      container.classList.toggle('has-text', input.value.trim().length > 0);
+      if (input.value.trim().length > 0) {
+        container.classList.add('has-text');
+      } else {
+        container.classList.remove('has-text');
+      }
     }
+
+    // Advanced document click listener to close menus when clicking outside
+    document.onclick = (e) => {
+      // Handle 3-dot menu
+      if (!e.target.closest('#puterMenuButton') && !e.target.closest('#puterDropdownMenu')) {
+          document.getElementById('puterDropdownMenu').classList.remove('show');
+      }
+      // Handle custom accordion menu
+      if (!e.target.closest('.custom-select-container')) {
+          document.getElementById('accordionMenu').classList.remove('show');
+      }
+    };
+
+    document.getElementById('puterMenuButton').onclick = (e) => {
+      e.stopPropagation();
+      document.getElementById('puterDropdownMenu').classList.toggle('show');
+    };
 
     function openModal(id) { document.getElementById(id).style.display = 'flex'; }
     function closeModal(id) { document.getElementById(id).style.display = 'none'; }
-    function toggleAccordionMenu() { document.getElementById('accordionMenu').classList.toggle('show'); }
-    function toggleAcc(id) { document.getElementById(id).classList.toggle('open'); }
+
+    // --- NEW CUSTOM ACCORDION UI LOGIC ---
+
+    function toggleAccordionMenu() {
+        document.getElementById('accordionMenu').classList.toggle('show');
+    }
+
+    function toggleAcc(elementId) {
+        const el = document.getElementById(elementId);
+        el.classList.toggle('open');
+    }
 
     function selectModel(id, name) {
-      globalSelectedModel = id;
-      document.getElementById('selectedModelText').textContent = name || id;
-      document.getElementById('accordionMenu').classList.remove('show');
+        globalSelectedModel = id;
+        console.log("Model Selected: " + id);
+        // Update the UI trigger text to show what was selected
+        document.getElementById('selectedModelText').textContent = name || id;
+        // Close the menu
+        document.getElementById('accordionMenu').classList.remove('show');
     }
 
+    // 1. Load Categorized Models into Custom Slider UI
     function loadModels() {
       try {
-        if (!window.AndroidInterface) return;
-        const jsonString = window.AndroidInterface.getLocalJson("models.json");
-        const providers = JSON.parse(jsonString);
-        let allModels = [];
-        for (const p in providers) {
-          providers[p].forEach(m => allModels.push({...m, provider: p}));
+        if (!window.AndroidInterface) {
+            console.warn("Waiting for AndroidInterface to load models...");
+            return;
         }
-        allModels.sort((a, b) => (a.name || a.id).localeCompare(b.name || b.id));
-        let html = '<div class="acc-section"><div class="acc-header" onclick="toggleAcc(\'acc-all\')">All Models</div><div id="acc-all" class="acc-content">';
+        
+        const jsonString = window.AndroidInterface.getLocalJson("models.json");
+        if (!jsonString || jsonString === "{}" || jsonString.trim() === "") {
+            throw new Error("Native bridge returned empty or invalid string.");
+        }
+
+        const providers = JSON.parse(jsonString);
+
+        let allModels = [];
+        let categoriesSet = new Set();
+
+        // Flatten the data and collect unique categories
+        for (const providerKey in providers) {
+            const providerModels = providers[providerKey].map(model => {
+                // Ensure categories exist and add them to our Set
+                if(model.categories) {
+                    model.categories.forEach(cat => categoriesSet.add(cat));
+                }
+                return { ...model, provider: providerKey };
+            });
+            allModels = allModels.concat(providerModels);
+        }
+
+        // Sort all models A-Z
+        allModels.sort((a, b) => a.name.localeCompare(b.name));
+
+        let html = '';
+
+        // --- SLIDER 1: ALL MODELS ---
+        html += `<div class="acc-section">
+                    <div class="acc-header" onclick="toggleAcc('acc-all')">All Models <span class="material-symbols-outlined" style="font-size:18px;">expand_more</span></div>
+                    <div id="acc-all" class="acc-content">`;
         allModels.forEach(m => {
-          html += `<div class="model-item" onclick="selectModel('${m.id}', '${(m.name || m.id).replace(/'/g, "\\'")}')">${m.name || m.id}</div>`;
+            const safeName = (m.name || m.id).replace(/'/g, "\\'");
+            html += `<div class="model-item" onclick="selectModel('${m.id}', '${safeName}')">${m.name || m.id}</div>`;
         });
-        html += '</div></div>';
+        html += `   </div>
+                 </div>`;
+
+        // --- SLIDER 2: BY PARENT/PROVIDER ---
+        html += `<div class="acc-section">
+                    <div class="acc-header" onclick="toggleAcc('acc-parents')">By Parent <span class="material-symbols-outlined" style="font-size:18px;">expand_more</span></div>
+                    <div id="acc-parents" class="acc-content">`;
+        for(const provider in providers) {
+            let pId = 'prov-' + provider.replace(/[^a-zA-Z0-9]/g, '-');
+            let displayName = provider.toUpperCase();
+            
+            html += `<div class="acc-sub-header" onclick="toggleAcc('${pId}')">${displayName} <span class="material-symbols-outlined" style="font-size:16px;">expand_more</span></div>
+                     <div id="${pId}" class="acc-sub-content">`;
+            
+            providers[provider].forEach(m => {
+                const safeName = (m.name || m.id).replace(/'/g, "\\'");
+                html += `<div class="model-item" onclick="selectModel('${m.id}', '${safeName}')">${m.name || m.id}</div>`;
+            });
+            html += `</div>`;
+        }
+        html += `   </div>
+                 </div>`;
+
+        // --- SLIDER 3: BY CATEGORY ---
+        html += `<div class="acc-section">
+                    <div class="acc-header" onclick="toggleAcc('acc-cat')">By Category <span class="material-symbols-outlined" style="font-size:18px;">expand_more</span></div>
+                    <div id="acc-cat" class="acc-content">`;
+        categoriesSet.forEach(cat => {
+            let cId = 'cat-' + cat.replace(/[^a-zA-Z0-9]/g, '-');
+            let displayName = cat.replace(/_/g, ' ').toUpperCase();
+            
+            html += `<div class="acc-sub-header" onclick="toggleAcc('${cId}')">${displayName} <span class="material-symbols-outlined" style="font-size:16px;">expand_more</span></div>
+                     <div id="${cId}" class="acc-sub-content">`;
+            
+            allModels.filter(m => m.categories && m.categories.includes(cat)).forEach(m => {
+                const safeName = (m.name || m.id).replace(/'/g, "\\'");
+                html += `<div class="model-item" onclick="selectModel('${m.id}', '${safeName}')">${m.name || m.id}</div>`;
+            });
+            html += `</div>`;
+        });
+        html += `   </div>
+                 </div>`;
+
+        // Inject the built HTML into the container
         document.getElementById('accordionMenu').innerHTML = html;
-        if(allModels.length > 0) selectModel(allModels[0].id, allModels[0].name || allModels[0].id);
-      } catch(e) { console.error("Model Load Error: " + e.message); }
+
+        // Set the default selection to the very first model available if none is selected
+        if(allModels.length > 0) {
+            selectModel(allModels[0].id, allModels[0].name || allModels[0].id);
+        } else {
+            document.getElementById('selectedModelText').textContent = "No models available";
+        }
+
+      } catch(e) { 
+          console.error("Model load via bridge failed:", e); 
+          document.getElementById('selectedModelText').textContent = `Error: ${e.message}`;
+      }
     }
 
+    // 2. Main Chat Logic with AUTH GUARD
     async function sendMessage() {
-      if (typeof puter === 'undefined' || !puter.auth.isSignedIn()) {
-        console.error("SDK Status: Not Signed In. Origin: " + window.location.origin);
-        alert("Please sign in.");
+      console.log("Send Clicked. Checking Puter Auth...");
+      if (typeof puter === 'undefined' || !puter.ready || !puter.auth.isSignedIn()) {
+        console.error("Auth Check Failed. User is not signed in.");
+        alert("Please sign in to start chatting with Puter.");
         handleAuthAction();
         return;
       }
+
       const input = document.getElementById('puterChatInput');
       const text = input.value.trim();
+      
+      const model = globalSelectedModel; 
+      
       if(!text && !currentImageData) return;
-      appendChat("User", text || "[Image]");
-      input.value = ""; handleInput();
 
-      let content = currentImageData ? [{type:"text", text: text}, {type:"image_url", image_url:{url: currentImageData}}] : text;
+      appendChat("User", text || "[Image Uploaded]");
+      input.value = "";
+      handleInput(); 
+
+      let content = text;
+      if (currentImageData) {
+        content = [{type:"text", text: text}, {type:"image_url", image_url:{url: currentImageData}}];
+      }
+
       try {
-        const resp = await puter.ai.chat(content, {model: globalSelectedModel, system_message: customInstruction});
-        appendChat("Bot", resp.message.content);
-        if(window.AndroidInterface) window.AndroidInterface.speak(resp.message.content);
+        console.log("Requesting AI Response for model: " + model);
+        const resp = await puter.ai.chat(content, {model: model, system_message: customInstruction});
+        const botMsg = resp.message.content;
+        appendChat("Bot", botMsg);
+
+        if(window.AndroidInterface) window.AndroidInterface.speak(botMsg);
+
         clearImage();
-      } catch(e) { console.error("Chat Error: " + e.message); }
+      } catch(e) { 
+        console.error("API Call Failed: " + e.message);
+        appendChat("System", "Error: " + e.message); 
+      }
     }
 
     function appendChat(sender, text) {
@@ -214,60 +441,134 @@
       window.scrollTo(0, document.body.scrollHeight);
     }
 
+    // 3. Android Bridge Handlers
+    window.onSpeechResult = (text) => {
+      console.log("Speech Result Received: " + text);
+      document.getElementById('puterChatInput').value = text;
+      handleInput();
+      sendMessage();
+    };
+
+    window.onImageResult = (base64) => {
+      console.log("Image Data Received via Bridge");
+      currentImageData = base64;
+      const img = document.getElementById('imagePreview');
+      img.src = base64;
+      img.style.display = 'block';
+    };
+
+    // 4. SDK-DRIVEN AUTHENTICATION
     async function handleAuthAction() {
-      if (typeof puter === 'undefined') return;
-      if (puter.auth.isSignedIn()) {
-        await puter.auth.signOut();
-        localStorage.removeItem('puter_token');
-        updateAuthUI();
-      } else {
-        await puter.auth.signIn(); 
-      }
-    }
-
-    function syncAuthSession() {
-      console.log("DIAGNOSTIC: Checking Native Bridge for session token...");
-      if (window.AndroidInterface && window.AndroidInterface.getSavedAuthToken) {
-        const token = window.AndroidInterface.getSavedAuthToken();
-        if (token && token !== "null" && token !== "") {
-          console.log("DIAGNOSTIC: Token detected. Injecting into LocalStorage.");
-          localStorage.setItem('puter_token', token);
-        } else {
-          console.warn("DIAGNOSTIC: Native Bridge returned no token.");
+        try {
+            if (typeof puter === 'undefined') {
+                alert("Puter SDK is loading, please wait a moment.");
+                return;
+            }
+            if (puter.auth.isSignedIn()) {
+                console.log("Signing Out...");
+                await puter.auth.signOut();
+                localStorage.removeItem('puter_token'); // Clear local injection
+                appendChat("System", "You have been signed out.");
+                updateAuthUI();
+            } else {
+                console.log("Triggering Puter SDK SignIn popup...");
+                await puter.auth.signIn(); 
+            }
+        } catch (error) {
+            console.error("Auth action failed:", error);
+            appendChat("System", "Authentication failed. Try again.");
         }
-      }
     }
 
+    /**
+     * DIAGNOSTIC: Added session injection from Native side to fix the isolation bug.
+     * This manually sets the token in the main WebView before Puter.js checks for it.
+     */
+    function syncAuthSession() {
+        if (window.AndroidInterface && window.AndroidInterface.getSavedAuthToken) {
+            const token = window.AndroidInterface.getSavedAuthToken();
+            if (token && token !== "null" && token !== "") {
+                console.log("DIAGNOSTIC: Injecting Native Token into LocalStorage.");
+                localStorage.setItem('puter_token', token);
+            } else {
+                console.warn("DIAGNOSTIC: No Native Token found to inject.");
+            }
+        }
+    }
+
+    /**
+     * UPDATED: Added a status guard (lastAuthStatus) to prevent the "UI Blinking" reload loop.
+     * Also logs status to the diagnostic console.
+     */
     function updateAuthUI() {
       if (typeof puter !== 'undefined' && window.AndroidInterface) {
         const logged = puter.auth.isSignedIn();
-        console.log("DIAGNOSTIC: Final SDK SignedIn State: " + logged);
+        console.log("Auth UI Sync. Logged In: " + logged);
+
+        // Prevent redundant native calls that cause reloads
         if (logged === lastAuthStatus) return;
         lastAuthStatus = logged;
+
         document.getElementById('authOption').textContent = logged ? "Sign Out" : "Sign In";
+        
+        // Notify Java side to update its internal SharedPreferences
         window.AndroidInterface.onAuthStatusChanged(logged);
       }
     }
 
-    function saveCustom() { customInstruction = document.getElementById('customInput').value; localStorage.setItem('puter_custom_ins', customInstruction); closeModal('customModal'); }
-    function toggleSettingsUI() { const bar = document.getElementById('settingsBar'); bar.style.display = bar.style.display === 'none' ? 'block' : 'none'; }
-    function newSession() { document.getElementById('puterChatLog').innerHTML = ''; clearImage(); }
-    function clearImage() { currentImageData = null; document.getElementById('imagePreview').style.display = 'none'; }
+    // --- HELPER FUNCTIONS ---
 
-    window.onSpeechResult = (t) => { document.getElementById('puterChatInput').value = t; handleInput(); sendMessage(); };
-    window.onImageResult = (b) => { currentImageData = b; const img = document.getElementById('imagePreview'); img.src = b; img.style.display = 'block'; };
+    function saveCustom() {
+      customInstruction = document.getElementById('customInput').value;
+      localStorage.setItem('puter_custom_ins', customInstruction);
+      console.log("Custom Instruction Saved.");
+      closeModal('customModal');
+    }
 
-    window.onload = () => {
-      console.log("--- APP START ---");
-      console.log("Origin: " + window.location.origin);
-      syncAuthSession();
-      loadModels();
-      if (typeof puter !== 'undefined') {
-        puter.ready(() => {
-          console.log("SDK Ready.");
-          updateAuthUI();
-        });
+    function toggleSettingsUI() {
+      const bar = document.getElementById('settingsBar');
+      const btn = document.getElementById('toggleSettingsBtn');
+      if(bar.style.display === 'none') {
+        bar.style.display = 'block';
+        btn.textContent = "Hide Settings";
+      } else {
+        bar.style.display = 'none';
+        btn.textContent = "Show Settings";
       }
+    }
+
+    function newSession() {
+      document.getElementById('puterChatLog').innerHTML = '';
+      clearImage();
+      console.log("Session Cleared.");
+    }
+
+    function clearImage() {
+      currentImageData = null;
+      document.getElementById('imagePreview').style.display = 'none';
+    }
+
+    // Execute immediately on load
+    window.onload = () => {
+        console.log("Page Lifecycle: ONLOAD");
+        
+        // 1. Sync session from Native before SDK initializes its internal memory
+        syncAuthSession();
+
+        // 2. Load UI elements
+        loadModels();
+        document.getElementById('customInput').value = customInstruction;
+
+        if (typeof puter !== 'undefined') {
+            console.log("Puter SDK detected. Waiting for ready...");
+            puter.ready(() => {
+                console.log("Puter SDK is READY. Checking Final Session State.");
+                // Ensure auth UI is called only once the SDK has fully initialized its session
+                updateAuthUI();
+            });
+        } else {
+            console.error("CRITICAL: Puter.js SDK failed to load script!");
+        }
     };
   </script>
 </body>
