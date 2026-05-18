@@ -106,23 +106,51 @@ public class WebAppInterface {
             ((Activity) context).startActivityForResult(Intent.createChooser(intent, "Upload to Puter"), 1);
         });
     }
+    
+    // --- NEW BRIDGE METHODS ---
+
+    /**
+     * Reads a local asset file and returns its content as a string.
+     * This is the FIX for "Error loading models" by bypassing WebView fetch restrictions.
+     * @param fileName The name of the file in the assets folder.
+     * @return The content of the file as a string.
+     */
+    @JavascriptInterface
+    public String getLocalJson(String fileName) {
+        return AssetUtils.readFile(context, fileName);
+    }
+
+    /**
+     * Called from JavaScript to update the native SharedPreferences with the real auth state
+     * from the Puter SDK. This keeps the native and web layers in sync.
+     * @param isSignedIn The status reported by puter.auth.isSignedIn().
+     */
+    @JavascriptInterface
+    public void onAuthStatusChanged(boolean isSignedIn) {
+        AuthManager.getInstance(context).setLoggedIn(isSignedIn);
+    }
+    
+    // --- LEGACY AUTH METHODS (NO LONGER USED DIRECTLY) ---
 
     // 6. SIGN IN
-    // Opens browser for Puter authentication (Requirement #10).
+    // NOTE: This is now triggered by JavaScript (puter.auth.signIn()). The native intent is removed.
     @JavascriptInterface
     public void signIn() {
-        Intent intent = new Intent(Intent.ACTION_VIEW, Uri.parse("https://puter.com/login"));
-        context.startActivity(intent);
+        // Intent intent = new Intent(Intent.ACTION_VIEW, Uri.parse("https://puter.com/login"));
+        // context.startActivity(intent);
+        // This is intentionally left blank. Auth is now handled by the SDK in the WebView.
     }
 
     // 7. SIGN OUT
-    // Clears persistence and refreshes the UI (Requirement #10).
+    // NOTE: This is now triggered by JavaScript (puter.auth.signOut()).
     @JavascriptInterface
     public void signOut() {
-        prefs.edit().putBoolean("is_logged_in", false).apply();
+        // The primary sign-out is handled by the SDK. This bridge method is kept
+        // in case the JS needs to notify the native side to perform additional tasks.
+        AuthManager.getInstance(context).logout();
         ((Activity) context).runOnUiThread(() -> {
             Toast.makeText(context, "Signed out", Toast.LENGTH_SHORT).show();
-            webView.reload(); 
+            webView.reload();
         });
     }
 
