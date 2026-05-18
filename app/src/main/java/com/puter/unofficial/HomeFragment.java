@@ -1,5 +1,6 @@
 package com.puter.unofficial;
 
+import android.os.Build;
 import android.os.Bundle;
 import android.view.LayoutInflater;
 import android.view.View;
@@ -18,6 +19,8 @@ import com.puter.unofficial.databinding.FragmentHomeBinding;
  * The Primary Dashboard Fragment for Puter Unofficial.
  * This fragment hosts the WebView that displays the Puter AI chat interface.
  * It initializes the JavaScript bridge and handles native feature integration.
+ * 
+ * UPDATED: Integrated WebViewAssetLoader support and Secure Origin migration.
  */
 public class HomeFragment extends Fragment {
 
@@ -41,6 +44,11 @@ public class HomeFragment extends Fragment {
         // Reference the WebView defined in fragment_home.xml
         webView = binding.homeWebView;
 
+        // FIX: Enable Remote Debugging for the fragment's WebView
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.KITKAT) {
+            WebView.setWebContentsDebuggingEnabled(true);
+        }
+
         // 1. Configure WebView Settings for Puter.js compatibility
         WebSettings settings = webView.getSettings();
         settings.setJavaScriptEnabled(true);
@@ -49,6 +57,16 @@ public class HomeFragment extends Fragment {
         settings.setAllowContentAccess(true);
         settings.setDatabaseEnabled(true);
         settings.setMediaPlaybackRequiresUserGesture(false); // For TTS/Audio
+
+        // FIX: Enable universal access to allow debug_console.js to function
+        settings.setAllowFileAccessFromFileURLs(true);
+        settings.setAllowUniversalAccessFromFileURLs(true);
+
+        // FIX: Bypass SDK initialization hangs by removing the WebView identifier ("; wv").
+        // Matches the logic in MainActivity for session and model-loading consistency.
+        String userAgent = settings.getUserAgentString();
+        userAgent = userAgent.replace("; wv", "");
+        settings.setUserAgentString(userAgent);
 
         // Ensure standard mobile viewport behavior
         settings.setUseWideViewPort(true);
@@ -64,15 +82,15 @@ public class HomeFragment extends Fragment {
         voiceManager.setBridge(webAppInterface);
 
         // 3. Set the Custom Puter WebView Client
-        // This handles authentication redirects and persistence logic
+        // This handles authentication redirects, AssetLoader routing, and persistence logic
         webView.setWebViewClient(new PuterWebViewClient(requireContext()));
 
         // 4. Register the JavaScript Bridge
         // This exposes 'window.AndroidInterface' to the HTML/JS frontend
-        webView.addJavascriptInterface(webAppInterface, "AndroidInterface");
+        webView.addJavascriptInterface(webAppInterface, AppConstants.JS_BRIDGE_NAME);
 
-        // 5. Load the local Puter frontend from assets
-        webView.loadUrl("file:///android_asset/index.html");
+        // 5. Load the local Puter frontend via the secure HTTPS virtual origin
+        webView.loadUrl(AppConstants.LOCAL_INDEX_URL);
     }
 
     /**
