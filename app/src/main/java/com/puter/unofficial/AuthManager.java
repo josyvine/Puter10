@@ -7,7 +7,13 @@ import android.content.SharedPreferences;
  * Manages the persistent authentication state for Puter Unofficial.
  * This class ensures that once a user signs in via the browser, the app 
  * remembers that state across restarts using SharedPreferences.
- * UPDATED: Added session token persistence to bridge isolation between WebViews.
+ * 
+ * DEEP ANALYSIS UPDATE: 
+ * With the migration to WebViewAssetLoader (HTTPS origin), primary 
+ * session persistence is now handled natively by the WebView's cookie 
+ * and storage engine. This class now acts as a native synchronization 
+ * layer to ensure the Android UI and Splash Screen are aware of the state 
+ * without waiting for the JavaScript SDK to initialize.
  */
 public class AuthManager {
 
@@ -28,6 +34,9 @@ public class AuthManager {
     /**
      * Gets the global instance of the AuthManager.
      * Uses synchronized block to ensure thread safety.
+     * 
+     * @param context The application context.
+     * @return The singleton instance of AuthManager.
      */
     public static synchronized AuthManager getInstance(Context context) {
         if (instance == null) {
@@ -59,15 +68,20 @@ public class AuthManager {
     }
 
     /**
-     * NEW: Persists the authentication token string extracted from the login popup.
-     * This allows the main WebView to inject the session into its own localStorage.
+     * Persists the authentication token string extracted from the login popup.
+     * Note: In the new HTTPS architecture, this acts as a backup record 
+     * rather than a primary injection source.
+     * 
+     * @param token The session token string.
      */
     public void setAuthToken(String token) {
         prefs.edit().putString(KEY_AUTH_TOKEN, token).apply();
     }
 
     /**
-     * NEW: Retrieves the saved authentication token.
+     * Retrieves the saved authentication token.
+     * 
+     * @return The saved token string or null if not available.
      */
     public String getAuthToken() {
         return prefs.getString(KEY_AUTH_TOKEN, null);
@@ -76,7 +90,7 @@ public class AuthManager {
     /**
      * Clears the authentication state.
      * Triggered when the user selects "Sign Out" from the HTML dropdown menu.
-     * UPDATED: Now also clears the session token.
+     * This ensures both the boolean flag and the token are wiped.
      */
     public void logout() {
         prefs.edit()
@@ -90,6 +104,8 @@ public class AuthManager {
      * This logic is used by the WebViewClient to detect when the user has 
      * finished signing in on the browser and has been redirected back.
      * 
+     * UPDATED: Includes detection for both token params and signed_in markers.
+     * 
      * @param url The URL being intercepted in the WebView.
      * @return true if the URL indicates a successful authentication.
      */
@@ -98,10 +114,11 @@ public class AuthManager {
 
         /* 
          * Puter typically redirects back to the main domain or a custom 
-         * callback URL after login. We check for success markers.
+         * callback URL after login. We check for multiple success markers
+         * to ensure compatibility with different SDK versions.
          */
-        // Use constants for better maintainability. This checks if the URL
-        // indicates a successful login via the Puter.js SDK redirect.
-        return (url.contains(AppConstants.AUTH_TOKEN_PARAM) || url.contains(AppConstants.AUTH_SUCCESS_MARKER));
+        return (url.contains(AppConstants.AUTH_TOKEN_PARAM) || 
+                url.contains(AppConstants.AUTH_SUCCESS_MARKER) ||
+                url.contains("signed_in=true"));
     }
 }
