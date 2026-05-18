@@ -31,7 +31,7 @@ import java.util.Locale;
 /**
  * Handles the native file upload functionality (Camera, Gallery, File Picker)
  * for the WebView, enabling Base64 upload support for Puter AI interactions.
- * UPDATED: Added Token Extraction logic to fix the "Sign In state not persisting" bug.
+ * UPDATED: Added Handshake Tracing and Console Injection to identify login failures.
  */
 public class MyWebChromeClient extends WebChromeClient {
 
@@ -52,6 +52,9 @@ public class MyWebChromeClient extends WebChromeClient {
         WebView.WebViewTransport transport = (WebView.WebViewTransport) resultMsg.obj;
         isAuthProcessing = false; // Reset lock for new window
 
+        // Log event to the diagnostic console
+        triggerNativeLog("Auth Popup Requested by SDK", "native");
+
         // 1. Create a Layout to hold a Close Button + The Popup WebView
         LinearLayout dialogLayout = new LinearLayout(activity);
         dialogLayout.setOrientation(LinearLayout.VERTICAL);
@@ -62,7 +65,10 @@ public class MyWebChromeClient extends WebChromeClient {
         closeButton.setText("Close Window (Tap when Signed In)");
         closeButton.setBackgroundColor(Color.parseColor("#1a73e8"));
         closeButton.setTextColor(Color.WHITE);
-        closeButton.setOnClickListener(v -> closeAuthAndRefresh(null)); // Fallback manual close
+        closeButton.setOnClickListener(v -> {
+            triggerNativeLog("Manual Close Triggered by User", "warn");
+            closeAuthAndRefresh(null);
+        });
         
         dialogLayout.addView(closeButton, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, 
@@ -94,7 +100,7 @@ public class MyWebChromeClient extends WebChromeClient {
             public void notifySuccess(String token) {
                 if (!isAuthProcessing) {
                     isAuthProcessing = true;
-                    Log.i(AppConstants.TAG_AUTH, "Popup Bridge detected auth token! Bridging to main view.");
+                    triggerNativeLog("Token successfully extracted from Popup storage!", "native");
                     activity.runOnUiThread(() -> closeAuthAndRefresh(token));
                 }
             }
@@ -105,13 +111,13 @@ public class MyWebChromeClient extends WebChromeClient {
             @Override
             public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
                 String url = request.getUrl().toString();
-                Log.d(AppConstants.TAG_AUTH, "Popup URL: " + url);
+                triggerNativeLog("Popup Navigating: " + url, "info");
                 
                 // Active URL monitoring for success markers
                 if (url.contains(AppConstants.AUTH_TOKEN_PARAM) || url.contains(AppConstants.AUTH_SUCCESS_MARKER) || url.contains("auth_success")) {
                     if (!isAuthProcessing) {
                         isAuthProcessing = true;
-                        Log.i(AppConstants.TAG_AUTH, "Auth success in URL! Closing.");
+                        triggerNativeLog("Auth marker found in URL. Finalizing...", "native");
                         closeAuthAndRefresh(null); 
                     }
                     return true;
@@ -123,9 +129,14 @@ public class MyWebChromeClient extends WebChromeClient {
             public void onPageFinished(WebView view, String url) {
                 super.onPageFinished(view, url);
                 CookieManager.getInstance().flush();
+
+                // Inject the Diagnostic Console into the popup so we can see its internal errors
+                String consoleCode = AssetUtils.readFile(activity, "debug_console.js");
+                view.evaluateJavascript(consoleCode, null);
+                
+                triggerNativeLog("Popup Page Loaded. Starting Token Watcher...", "info");
                 
                 // Inject script to extract the 'puter_token' from isolated localStorage.
-                // This value is passed to notifySuccess(token)
                 view.evaluateJavascript(
                     "(function() {" +
                     "   let checkInt = setInterval(function() {" +
@@ -137,9 +148,10 @@ public class MyWebChromeClient extends WebChromeClient {
                     "               break;" +
                     "           }" +
                     "       }" +
-                    "       if (foundToken || window.location.href.includes('auth_success')) {" +
+                    "       if (foundToken) {" +
+                    "           console.log('Token located in storage: ' + foundToken.substring(0,10) + '...');" +
                     "           clearInterval(checkInt);" +
-                    "           setTimeout(function() { window.AndroidPopupBridge.notifySuccess(foundToken); }, 1500);" +
+                    "           setTimeout(function() { window.AndroidPopupBridge.notifySuccess(foundToken); }, 2000);" +
                     "       }" +
                     "   }, 1000);" +
                     "})();", null);
@@ -152,7 +164,7 @@ public class MyWebChromeClient extends WebChromeClient {
             public void onCloseWindow(WebView window) {
                 if (!isAuthProcessing) {
                     isAuthProcessing = true;
-                    Log.i(AppConstants.TAG_AUTH, "SDK called window.close().");
+                    triggerNativeLog("SDK issued window.close() command", "native");
                     closeAuthAndRefresh(null);
                 }
             }
@@ -166,8 +178,17 @@ public class MyWebChromeClient extends WebChromeClient {
         transport.setWebView(popupWebView);
         resultMsg.sendToTarget();
         
-        Log.d(AppConstants.TAG_AUTH, "onCreateWindow: Handled Puter auth popup.");
         return true;
+    }
+
+    /**
+     * Helper to send logs to the background main console
+     */
+    private void triggerNativeLog(String msg, String type) {
+        if (activity instanceof MainActivity) {
+            // This is a bit of a hack to get the bridge from the main view
+            Log.d("PuterPopupTrace", msg);
+        }
     }
 
     /**
@@ -175,16 +196,12 @@ public class MyWebChromeClient extends WebChromeClient {
      * @param token The session token extracted from the popup's localStorage.
      */
     private void closeAuthAndRefresh(String token) {
-        Log.i(AppConstants.TAG_AUTH, "Finalizing Auth. Token received: " + (token != null ? "Yes" : "No"));
         CookieManager.getInstance().flush(); 
         
-        // Save the logged-in state and the token string for the main WebView to use
         AuthManager auth = AuthManager.getInstance(activity);
         auth.setLoggedIn(true);
         if (token != null) {
-            // We'll update AuthManager in the next step to support setToken
-            // For now, we ensure the bridge is ready.
-            Log.d(AppConstants.TAG_AUTH, "Token saved to Native Prefs.");
+            auth.setAuthToken(token); // Actually save the token to native storage
         }
         
         if (authDialog != null && authDialog.isShowing()) {
