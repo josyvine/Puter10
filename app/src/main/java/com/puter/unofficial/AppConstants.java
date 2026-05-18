@@ -18,6 +18,13 @@ public class AppConstants {
     
     // The local asset path for the app frontend.
     public static final String LOCAL_INDEX_URL = "file:///android_asset/index.html";
+    
+    // Markers for detecting successful SDK authentication redirects
+    public static final String AUTH_SUCCESS_MARKER = "signed_in=true";
+    public static final String AUTH_TOKEN_PARAM = "token=";
+
+    // --- ASSETS ---
+    public static final String MODELS_JSON_FILE = "models.json";
 
     // --- PERMISSION REQUEST CODES ---
     public static final int REQUEST_CODE_PERMISSIONS = 100;
@@ -41,4 +48,4 @@ public class AppConstants {
     private AppConstants() {
         // No-op
     }
-} 
+}
