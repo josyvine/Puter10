@@ -61,12 +61,11 @@ public class MyWebChromeClient extends WebChromeClient {
         webSettings.setJavaScriptCanOpenWindowsAutomatically(true);
         webSettings.setSupportMultipleWindows(true);
 
-        // FIX: Bypass Google 403 "disallowed_useragent" by removing the WebView identifier ("; wv").
-        // This forces Google to treat this popup as a standard mobile browser, allowing sign-in 
-        // to proceed successfully without pushing the user out of the app.
-        String userAgent = webSettings.getUserAgentString();
-        userAgent = userAgent.replace("; wv", "");
-        webSettings.setUserAgentString(userAgent);
+        // FIX: Bypass Google 403 "disallowed_useragent". 
+        // Google is strict. Removing "; wv" is no longer enough. We must completely spoof 
+        // a standard Chrome Mobile User-Agent to ensure Google OAuth loads perfectly inside the app.
+        String standardChromeUA = "Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/116.0.0.0 Mobile Safari/537.36";
+        webSettings.setUserAgentString(standardChromeUA);
 
         // FIX FOR HANGING SIGN-IN: Enable Third-Party Cookies so the session saves
         CookieManager.getInstance().setAcceptCookie(true);
