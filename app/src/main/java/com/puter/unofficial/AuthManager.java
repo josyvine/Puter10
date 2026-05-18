@@ -7,11 +7,13 @@ import android.content.SharedPreferences;
  * Manages the persistent authentication state for Puter Unofficial.
  * This class ensures that once a user signs in via the browser, the app 
  * remembers that state across restarts using SharedPreferences.
+ * UPDATED: Added session token persistence to bridge isolation between WebViews.
  */
 public class AuthManager {
 
     private static final String PREF_NAME = "PuterPrefs";
     private static final String KEY_IS_LOGGED_IN = "is_logged_in";
+    private static final String KEY_AUTH_TOKEN = "puter_auth_token"; // Key for the extracted SDK token
     private static AuthManager instance;
     private final SharedPreferences prefs;
 
@@ -57,11 +59,30 @@ public class AuthManager {
     }
 
     /**
+     * NEW: Persists the authentication token string extracted from the login popup.
+     * This allows the main WebView to inject the session into its own localStorage.
+     */
+    public void setAuthToken(String token) {
+        prefs.edit().putString(KEY_AUTH_TOKEN, token).apply();
+    }
+
+    /**
+     * NEW: Retrieves the saved authentication token.
+     */
+    public String getAuthToken() {
+        return prefs.getString(KEY_AUTH_TOKEN, null);
+    }
+
+    /**
      * Clears the authentication state.
      * Triggered when the user selects "Sign Out" from the HTML dropdown menu.
+     * UPDATED: Now also clears the session token.
      */
     public void logout() {
-        prefs.edit().putBoolean(KEY_IS_LOGGED_IN, false).apply();
+        prefs.edit()
+             .putBoolean(KEY_IS_LOGGED_IN, false)
+             .remove(KEY_AUTH_TOKEN) // Ensure token is cleared on logout
+             .apply();
     }
 
     /**
@@ -74,7 +95,7 @@ public class AuthManager {
      */
     public boolean isAuthCallback(String url) {
         if (url == null) return false;
-        
+
         /* 
          * Puter typically redirects back to the main domain or a custom 
          * callback URL after login. We check for success markers.
