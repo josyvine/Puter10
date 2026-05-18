@@ -39,16 +39,18 @@ public class MyWebChromeClient extends WebChromeClient {
     private final Activity activity;
     private String currentPhotoPath;
     private Dialog authDialog; // Dialog to host the login popup WebView
+    private boolean isAuthProcessing = false; // Prevents the "Blinking" reload loop
 
     public MyWebChromeClient(Activity activity) {
         this.activity = activity;
     }
 
-    // --- NEW: SDK AUTH POPUP HANDLER WITH AUTO-CLOSE & FALLBACK BUTTON ---
+    // --- SDK AUTH POPUP HANDLER WITH AUTO-CLOSE & FALLBACK BUTTON ---
 
     @Override
     public boolean onCreateWindow(WebView view, boolean isDialog, boolean isUserGesture, Message resultMsg) {
         WebView.WebViewTransport transport = (WebView.WebViewTransport) resultMsg.obj;
+        isAuthProcessing = false; // Reset lock for new window
 
         // 1. Create a Layout to hold a Close Button + The Popup WebView
         LinearLayout dialogLayout = new LinearLayout(activity);
@@ -56,7 +58,6 @@ public class MyWebChromeClient extends WebChromeClient {
         dialogLayout.setBackgroundColor(Color.WHITE);
 
         // 2. Create a Fail-Safe "Done" Button
-        // If the auto-close fails or hangs on "Signing in...", the user can tap this to proceed.
         Button closeButton = new Button(activity);
         closeButton.setText("Close Window (Tap when Signed In)");
         closeButton.setBackgroundColor(Color.parseColor("#1a73e8"));
@@ -91,8 +92,11 @@ public class MyWebChromeClient extends WebChromeClient {
         popupWebView.addJavascriptInterface(new Object() {
             @JavascriptInterface
             public void notifySuccess() {
-                Log.i(AppConstants.TAG_AUTH, "Popup JS Bridge detected auth token! Auto-closing.");
-                activity.runOnUiThread(() -> closeAuthAndRefresh());
+                if (!isAuthProcessing) {
+                    isAuthProcessing = true;
+                    Log.i(AppConstants.TAG_AUTH, "Popup JS Bridge detected auth token! Auto-closing.");
+                    activity.runOnUiThread(() -> closeAuthAndRefresh());
+                }
             }
         }, "AndroidPopupBridge");
 
@@ -103,10 +107,12 @@ public class MyWebChromeClient extends WebChromeClient {
                 String url = request.getUrl().toString();
                 Log.d(AppConstants.TAG_AUTH, "Popup URL: " + url);
                 
-                // Active URL monitoring
                 if (url.contains(AppConstants.AUTH_TOKEN_PARAM) || url.contains(AppConstants.AUTH_SUCCESS_MARKER) || url.contains("auth_success")) {
-                    Log.i(AppConstants.TAG_AUTH, "Auth success detected in URL! Manually closing popup.");
-                    closeAuthAndRefresh();
+                    if (!isAuthProcessing) {
+                        isAuthProcessing = true;
+                        Log.i(AppConstants.TAG_AUTH, "Auth success detected in URL! Manually closing popup.");
+                        closeAuthAndRefresh();
+                    }
                     return true;
                 }
                 return false;
@@ -117,11 +123,11 @@ public class MyWebChromeClient extends WebChromeClient {
                 super.onPageFinished(view, url);
                 CookieManager.getInstance().flush();
                 
-                // Inject an aggressive background script to check for successful login
-                // It looks for tokens in localStorage, which Puter uses when it says "Signing in..."
+                // Aggressive check for token in localStorage. 
+                // We add a delay to notifySuccess to ensure the SDK finishes writing to local storage.
                 view.evaluateJavascript(
                     "(function() {" +
-                    "   setInterval(function() {" +
+                    "   let checkInterval = setInterval(function() {" +
                     "       let success = false;" +
                     "       for (let i = 0; i < localStorage.length; i++) {" +
                     "           if (localStorage.key(i).includes('token') || localStorage.key(i).includes('puter')) {" +
@@ -129,9 +135,10 @@ public class MyWebChromeClient extends WebChromeClient {
                     "           }" +
                     "       }" +
                     "       if (success || window.location.href.includes('auth_success')) {" +
-                    "           window.AndroidPopupBridge.notifySuccess();" +
+                    "           clearInterval(checkInterval);" +
+                    "           setTimeout(function() { window.AndroidPopupBridge.notifySuccess(); }, 1000);" +
                     "       }" +
-                    "   }, 1500);" +
+                    "   }, 1000);" +
                     "})();", null);
             }
         });
@@ -140,8 +147,11 @@ public class MyWebChromeClient extends WebChromeClient {
         popupWebView.setWebChromeClient(new WebChromeClient() {
             @Override
             public void onCloseWindow(WebView window) {
-                Log.i(AppConstants.TAG_AUTH, "Popup called window.close(). Completing login.");
-                closeAuthAndRefresh();
+                if (!isAuthProcessing) {
+                    isAuthProcessing = true;
+                    Log.i(AppConstants.TAG_AUTH, "Popup called window.close(). Completing login.");
+                    closeAuthAndRefresh();
+                }
             }
         });
 
@@ -162,15 +172,15 @@ public class MyWebChromeClient extends WebChromeClient {
      */
     private void closeAuthAndRefresh() {
         Log.i(AppConstants.TAG_AUTH, "Finalizing Auth and closing dialog.");
-        CookieManager.getInstance().flush(); // Save cookies permanently
-        AuthManager.getInstance(activity).setLoggedIn(true); // Persist state natively
+        CookieManager.getInstance().flush(); 
+        AuthManager.getInstance(activity).setLoggedIn(true); 
         
         if (authDialog != null && authDialog.isShowing()) {
             authDialog.dismiss();
             authDialog = null;
         }
 
-        // Refresh the main app screen to apply SDK session
+        // We reload the main screen only once everything is settled to avoid the blinking loop
         if (activity instanceof MainActivity) {
             ((MainActivity) activity).reloadWebView();
         }
@@ -186,7 +196,7 @@ public class MyWebChromeClient extends WebChromeClient {
         Log.d(AppConstants.TAG_AUTH, "onCloseWindow: Main window closed Puter auth popup.");
     }
 
-    // --- EXISTING: FILE UPLOAD LOGIC (UNCHANGED) ---
+    // --- FILE UPLOAD LOGIC ---
 
     @Override
     public boolean onShowFileChooser(WebView webView, ValueCallback<Uri[]> filePathCallback, FileChooserParams fileChooserParams) {
@@ -195,12 +205,10 @@ public class MyWebChromeClient extends WebChromeClient {
         }
         uploadMessage = filePathCallback;
 
-        // Intent for picking files
         Intent contentIntent = new Intent(Intent.ACTION_GET_CONTENT);
         contentIntent.addCategory(Intent.CATEGORY_OPENABLE);
-        contentIntent.setType("*/*"); // Allow all types
+        contentIntent.setType("*/*");
 
-        // Intent for Camera
         Intent takePictureIntent = new Intent(MediaStore.ACTION_IMAGE_CAPTURE);
         if (takePictureIntent.resolveActivity(activity.getPackageManager()) != null) {
             File photoFile = null;
@@ -208,7 +216,7 @@ public class MyWebChromeClient extends WebChromeClient {
                 photoFile = createImageFile();
                 takePictureIntent.putExtra("PhotoPath", currentPhotoPath);
             } catch (IOException ex) {
-                // Error occurred
+                Log.e("MyWebChromeClient", "Error creating image file", ex);
             }
             if (photoFile != null) {
                 currentPhotoPath = "file:" + photoFile.getAbsolutePath();
