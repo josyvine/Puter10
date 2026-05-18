@@ -29,7 +29,7 @@ public class MainActivity extends AppCompatActivity {
     private ValueCallback<Uri[]> uploadMessage;
     private VoiceManager voiceManager;
     private WebAppInterface webAppInterface;
-    
+
     // Receiver to catch results from the Full-Screen Voice Agent Activity
     private BroadcastReceiver voiceReceiver;
 
@@ -190,6 +190,17 @@ public class MainActivity extends AppCompatActivity {
             uploadMessage.onReceiveValue(WebChromeClient.FileChooserParams.parseResult(resultCode, data));
             uploadMessage = null;
         }
+    }
+
+    /**
+     * Required by SettingsFragment to refresh the UI when the user signs out.
+     */
+    public void reloadWebView() {
+        runOnUiThread(() -> {
+            if (webView != null) {
+                webView.reload();
+            }
+        });
     }
 
     @Override
