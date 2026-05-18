@@ -1,47 +1,17 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- Original HFS Branding Palette -->
-    <color name="hfs_background_dark">#0F111A</color>
-    <color name="hfs_surface_dark">#1A1D29</color>
-    <color name="hfs_primary_blue">#3D8BFF</color>
-    <color name="hfs_primary_dark">#2456A5</color>
-    <color name="hfs_active_green">#00E676</color>
-    <color name="hfs_inactive_red">#FF5252</color>
-    <color name="hfs_warning_orange">#FFAB40</color>
-    <color name="white">#FFFFFFFF</color>
+    <!-- Basic Colors -->
     <color name="black">#FF000000</color>
-    <color name="gray_text">#949BA5</color>
-    <color name="divider_color">#2C3142</color>
-    <color name="nav_selected">#3D8BFF</color>
-    <color name="nav_unselected">#6B7280</color>
-
-    <!-- Theme Colors - Added in previous step -->
-    <color name="amoled_colorPrimary">#3D8BFF</color>
-    <color name="amoled_backgroundColor">#000000</color>
-    <color name="amoled_textColor">#FFFFFF</color>
-    <color name="amoled_headerTextColor">#3D8BFF</color>
-
-    <color name="dt_colorPrimary">#3D8BFF</color>
-    <color name="dt_backgroundColor">#0F111A</color>
-    <color name="dt_textColor">#FFFFFF</color>
-    <color name="dt_headerTextColor">#3D8BFF</color>
-
-    <color name="lt_colorPrimary">#2456A5</color>
-    <color name="lt_backgroundColor">#FFFFFF</color>
-    <color name="lt_textColor">#000000</color>
-    <color name="lt_headerTextColor">#2456A5</color>
+    <color name="white">#FFFFFFFF</color>
     
-    <!-- MISSING COLORS CAUSING NEW BUILD ERROR - ADDED -->
-    
-    <!-- Nordic Theme Colors -->
-    <color name="nordic_colorPrimary">#88C0D0</color>  <!-- Arctic Blue -->
-    <color name="nordic_backgroundColor">#2E3440</color> <!-- Darker Navy -->
-    <color name="nordic_textColor">#ECEFF4</color>       <!-- Snow White -->
-    <color name="nordic_headerTextColor">#88C0D0</color>
+    <!-- Puter Branding Colors (Derived from your Original HTML Blue) -->
+    <color name="puter_blue">#1a73e8</color>
+    <color name="puter_blue_dark">#1557b0</color>
+    <color name="puter_accent">#1a73e8</color>
 
-    <!-- Solarized Theme Colors -->
-    <color name="solarized_colorPrimary">#268BD2</color> <!-- Blue -->
-    <color name="solarized_backgroundColor">#002B36</color> <!-- Base Dark -->
-    <color name="solarized_textColor">#839496</color>       <!-- Base Light -->
-    <color name="solarized_headerTextColor">#268BD2</color>
+    <!-- UI Surface Colors -->
+    <color name="background_light">#f7f7f7</color>
+    <color name="header_dark">#333333</color>
+    <color name="text_dark">#333333</color>
+    <color name="border_gray">#dadce0</color>
 </resources>
