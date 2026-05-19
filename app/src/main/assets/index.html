@@ -7,7 +7,7 @@
   <title>Puter Unofficial</title>
   <!-- DIAGNOSTIC CONSOLE: Must load first to capture all events -->
   <script src="debug_console.js"></script>
-  <!-- FIX 1: Removed 'async' to ensure the SDK is available for synchronous initialization -->
+  <!-- SDK loaded without async to ensure availability for sync initialization -->
   <script src="https://js.puter.com/v2/"></script>
   <script src="https://cdn.jsdelivr.net/npm/marked@4.0.0/marked.min.js"></script>
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" />
@@ -761,6 +761,9 @@
     window.onload = () => {
         console.log("Page Lifecycle: ONLOAD on Secure Origin");
         
+        // FIX: Load Models IMMEDIATELY before waiting for SDK
+        loadModels();
+        
         syncAuthSession();
         loadSavedHistory();
         document.getElementById('customInput').value = customInstruction;
@@ -770,12 +773,8 @@
             puter.ready(() => {
                 console.log("Puter SDK Ready. Finalizing Session UI...");
                 updateAuthUI();
-                // FIX 1: loadModels triggered only when SDK is 100% available
-                loadModels();
             });
         } else {
-            // FALLBACK: Load local models even if SDK fails
-            loadModels();
             console.error("CRITICAL: Puter.js SDK failed to load on this origin!");
         }
     };
