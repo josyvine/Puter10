@@ -6,6 +6,8 @@ import android.content.Intent;
 import android.content.IntentFilter;
 import android.os.Build;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
 import android.speech.RecognitionListener;
 import android.speech.RecognizerIntent;
 import android.speech.SpeechRecognizer;
@@ -23,6 +25,7 @@ import java.util.Locale;
  * Full-screen Native Voice Agent Activity for Puter Unofficial.
  * This implementation enables a continuous, hands-free conversation loop.
  * UPDATED: Optimized for Barge-in and Always-on listening during AI speech.
+ * REFINED: Fixed hardware reset logic to ensure user speech is captured during barge-in.
  */
 public class VoiceAgentActivity extends AppCompatActivity {
 
@@ -39,6 +42,9 @@ public class VoiceAgentActivity extends AppCompatActivity {
 
     private boolean isListening = false;
     private boolean isAIspeaking = false;
+    
+    // Handler for managing hardware sync delays
+    private final Handler hardwareHandler = new Handler(Looper.getMainLooper());
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -99,6 +105,13 @@ public class VoiceAgentActivity extends AppCompatActivity {
             }
 
             @Override
+            public void onFinish(String utteranceId, boolean interrupted) {
+                super.onFinish(utteranceId, interrupted);
+                isAIspeaking = false;
+                runOnUiThread(() -> startListening());
+            }
+
+            @Override
             public void onError(String utteranceId) {
                 isAIspeaking = false;
                 runOnUiThread(() -> startListening());
@@ -116,11 +129,25 @@ public class VoiceAgentActivity extends AppCompatActivity {
 
             @Override
             public void onBeginningOfSpeech() {
-                // BARGE-IN: If user talks while AI is speaking, kill the AI speech immediately
+                // FIX: BARGE-IN COMPREHENSION RECOVERY
+                // If user talks while AI is speaking, kill the AI speech immediately.
                 if (tts != null && tts.isSpeaking()) {
-                    Log.d(TAG, "Voice detected - stopping AI speech immediately");
+                    Log.d(TAG, "Barge-in: Voice detected - performing hardware reset.");
                     tts.stop();
                     isAIspeaking = false;
+                    
+                    /* 
+                     * REQUIREMENT: Reset the audio buffer immediately.
+                     * We cycle the recognizer to ensure that the AI's audio residue 
+                     * is purged and the user's first words are captured clearly.
+                     */
+                    hardwareHandler.postDelayed(() -> {
+                        if (isListening) {
+                            speechRecognizer.cancel();
+                            isListening = false;
+                            startListening();
+                        }
+                    }, 50); // Minimal delay to allow audio focus release
                 }
             }
 
@@ -139,11 +166,18 @@ public class VoiceAgentActivity extends AppCompatActivity {
             public void onError(int error) {
                 isListening = false;
                 // REQUIREMENT: Auto-restart listening on timeouts/silence to maintain "Always On"
-                if (error == SpeechRecognizer.ERROR_SPEECH_TIMEOUT || error == SpeechRecognizer.ERROR_NO_MATCH) {
-                    Log.d(TAG, "Mic timeout/No match - restarting listener...");
-                    startListening();
+                if (error == SpeechRecognizer.ERROR_SPEECH_TIMEOUT || 
+                    error == SpeechRecognizer.ERROR_NO_MATCH || 
+                    error == SpeechRecognizer.ERROR_RECOGNIZER_BUSY) {
+                    
+                    Log.d(TAG, "Mic glitch/timeout (Error Code: " + error + ") - performing aggressive restart...");
+                    
+                    // Cleanup and restart
+                    speechRecognizer.cancel();
+                    hardwareHandler.postDelayed(() -> startListening(), 100);
                 } else {
                     tvStatus.setText("Tap mic to try again");
+                    Log.e(TAG, "STT Critical Error: " + error);
                 }
             }
 
@@ -167,6 +201,7 @@ public class VoiceAgentActivity extends AppCompatActivity {
                     
                     // Live Barge-in: Stop AI as soon as user starts speaking first few words
                     if (tts != null && tts.isSpeaking() && partial.trim().length() > 0) {
+                        Log.d(TAG, "Partial voice detected - silencing AI.");
                         tts.stop();
                         isAIspeaking = false;
                     }
@@ -215,16 +250,21 @@ public class VoiceAgentActivity extends AppCompatActivity {
     }
 
     /**
-     * Starts listening. Removed the gate that prevented listening during speech.
+     * Starts listening. 
+     * Requirement: Robust reset to avoid collisions with TTS audio focus.
      */
     private void startListening() {
         if (!isListening) {
             try {
+                // Ensure no previous session is lingering
+                speechRecognizer.cancel();
                 speechRecognizer.startListening(recognizerIntent);
+                isListening = true;
             } catch (Exception e) {
                 Log.e(TAG, "Error starting recognizer: " + e.getMessage());
-                // Fallback attempt
                 isListening = false;
+                // Retry after a short delay if hardware is locked
+                hardwareHandler.postDelayed(() -> startListening(), 500);
             }
         }
     }
@@ -242,6 +282,16 @@ public class VoiceAgentActivity extends AppCompatActivity {
     }
 
     @Override
+    protected void onPause() {
+        super.onPause();
+        // Prevent mic hanging in background
+        if (speechRecognizer != null) {
+            speechRecognizer.cancel();
+            isListening = false;
+        }
+    }
+
+    @Override
     protected void onDestroy() {
         if (aiResponseReceiver != null) unregisterReceiver(aiResponseReceiver);
         if (speechRecognizer != null) {
@@ -252,6 +302,7 @@ public class VoiceAgentActivity extends AppCompatActivity {
             tts.stop();
             tts.shutdown();
         }
+        hardwareHandler.removeCallbacksAndMessages(null);
         super.onDestroy();
     }
 }
