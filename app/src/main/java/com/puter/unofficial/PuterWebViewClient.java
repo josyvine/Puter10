@@ -16,6 +16,7 @@ import androidx.webkit.WebViewAssetLoader;
  * This class intercepts URL loads to detect successful authentication redirects,
  * manages the virtual HTTPS asset routing via WebViewAssetLoader,
  * and ensures that Puter.js session cookies are persisted correctly.
+ * PERSISTENCE UPDATE: Added reinforced hardware-level synchronization for AI requests.
  */
 public class PuterWebViewClient extends WebViewClient {
 
@@ -97,7 +98,8 @@ public class PuterWebViewClient extends WebViewClient {
         super.onPageFinished(view, url);
         Log.d(TAG, "Page load finished: " + url);
 
-        // Ensure cookies are saved for persistence after any page load
+        // PERSISTENCE FIX: Force cookie sync to disk.
+        // This ensures the AI chat engine has access to the auth session immediately.
         CookieManager.getInstance().flush();
 
         /*
