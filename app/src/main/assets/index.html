@@ -53,7 +53,7 @@
     .model-item:last-child { border-bottom: none; }
     .model-item:hover { background: #e8f0fe; color: #1a73e8; }
 
-    .chat-container { display: flex; flex-direction: column; flex: 1; width: 100%; position: relative; z-index: 5; padding: 15px; margin-top: 130px; margin-bottom: 80px; }
+    .chat-container { display: flex; flex-direction: column; flex: 1; width: 100%; position: relative; z-index: 5; padding: 15px; margin-top: 130px; margin-bottom: 120px; }
     .chat-log { flex: 1; width: 100%; }
 
     .message { display: flex; align-items: flex-start; margin-bottom: 20px; width: 100%; -webkit-user-select: none; user-select: none; }
@@ -77,9 +77,18 @@
     .delete-action { color: #d93025 !important; }
     .delete-action span { color: #d93025 !important; }
 
-    /* --- FIXED SEARCH BAR CSS --- */
+    /* --- FIXED SEARCH BAR CSS WITH DYNAMIC TRANSFORM --- */
     .chat-controls { position: fixed; bottom: 0; left: 0; width: 100%; background: #fff; padding: 10px; z-index: 110; border-top: 1px solid #ddd; }
-    .search-bar-container { display: flex; align-items: center; width: 100%; max-width: 600px; border-radius: 28px; background-color: white; box-shadow: 0 1px 4px rgba(0, 0, 0, 0.15); padding: 6px 10px; position: relative; min-height: 56px; border: 1px solid #dadce0; margin: 0 auto; }
+    .search-bar-container { display: flex; flex-direction: column; width: 100%; max-width: 600px; border-radius: 28px; background-color: white; box-shadow: 0 1px 4px rgba(0, 0, 0, 0.15); padding: 6px 10px; position: relative; min-height: 56px; height: auto !important; border: 1px solid #dadce0; margin: 0 auto; transition: all 0.2s ease; }
+
+    /* --- NEW FEATURE: THUMBNAIL CONTAINER --- */
+    .thumbnail-container { display: flex; flex-wrap: wrap; gap: 8px; padding: 5px 40px; width: 100%; }
+    .thumbnail { position: relative; width: 42px; height: 42px; border-radius: 8px; border: 1px solid #ddd; background: #f0f0f0; display: flex; align-items: center; justify-content: center; overflow: visible; }
+    .thumbnail img { width: 100%; height: 100%; object-fit: cover; border-radius: 6px; }
+    .thumbnail .file-ext-icon { font-size: 18px; color: #1a73e8; font-weight: bold; }
+    .thumb-remove-btn { position: absolute; top: -6px; right: -6px; background: #d93025; color: white; width: 18px; height: 18px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 12px; border: 1px solid white; box-shadow: 0 1px 3px rgba(0,0,0,0.2); cursor: pointer; }
+
+    .input-wrapper { display: flex; align-items: center; width: 100%; position: relative; }
 
     .search-bar-container input[type="text"] { 
         flex-grow: 1; 
@@ -108,8 +117,7 @@
         width: 44px; 
         height: 44px; 
         position: absolute; 
-        top: 50%; 
-        transform: translateY(-50%); 
+        bottom: 0; 
         z-index: 10; 
     }
 
@@ -147,7 +155,7 @@
     .btn-primary { background: #1a73e8; color: #fff; }
     .btn-secondary { background: #eee; color: #333; }
 
-    #imagePreview { max-width: 80px; max-height: 80px; display: none; margin: 0 15px 10px 15px; border-radius: 8px; border: 2px solid #1a73e8; object-fit: cover; }
+    #imagePreview { display: none; } /* DEPRECATED - REPLACED BY THUMBNAIL CONTAINER */
   </style>
 </head>
 <body>
@@ -195,30 +203,34 @@
   </div>
 
   <div class="chat-controls">
-    <img id="imagePreview" src="" onclick="clearImage()" title="Tap to remove" />
     <div class="search-bar-container" id="puterSearchBarContainer">
+      
+      <!-- ENHANCEMENT: DYNAMIC FILE THUMBNAILS -->
+      <div id="thumbnailArea" class="thumbnail-container"></div>
 
-      <!-- 1. Upload Icon: Extreme Left -->
-      <button class="action-button upload-btn-cls" onclick="window.AndroidInterface.openFilePicker()">
-        <span class="material-symbols-outlined">add</span>
-      </button>
+      <div class="input-wrapper">
+          <!-- 1. Upload Icon: Extreme Left -->
+          <button class="action-button upload-btn-cls" onclick="window.AndroidInterface.openFilePicker()">
+            <span class="material-symbols-outlined">add</span>
+          </button>
 
-      <input type="text" id="puterChatInput" placeholder="Ask Puter..." oninput="handleInput()" autocomplete="off">
+          <input type="text" id="puterChatInput" placeholder="Ask Puter..." oninput="handleInput()" autocomplete="off">
 
-      <!-- 2. Microphone: Right side, left of TTS -->
-      <button class="action-button mic-btn-cls" onclick="triggerMic()">
-        <span class="material-symbols-outlined">mic</span>
-      </button>
+          <!-- 2. Microphone: Right side, left of TTS -->
+          <button class="action-button mic-btn-cls" onclick="triggerMic()">
+            <span class="material-symbols-outlined">mic</span>
+          </button>
 
-      <!-- 3. TTS/Voice Agent: Extreme Right -->
-      <button class="action-button voice-agent-btn-cls" onclick="triggerVoiceAgent()">
-        <span class="material-symbols-outlined">auto_awesome</span>
-      </button>
+          <!-- 3. TTS/Voice Agent: Extreme Right -->
+          <button class="action-button voice-agent-btn-cls" onclick="triggerVoiceAgent()">
+            <span class="material-symbols-outlined">auto_awesome</span>
+          </button>
 
-      <!-- 4. Send Button: Replaces Mic and TTS when text is present -->
-      <button class="action-button send-btn-cls" id="sendBtn" onclick="sendMessage(false)">
-        <span class="material-symbols-outlined">send</span>
-      </button>
+          <!-- 4. Send Button: Replaces Mic and TTS when text is present -->
+          <button class="action-button send-btn-cls" id="sendBtn" onclick="sendMessage(false)">
+            <span class="material-symbols-outlined">send</span>
+          </button>
+      </div>
     </div>
   </div>
 
@@ -235,7 +247,8 @@
       <h3>Puter Unofficial Help</h3>
       <p>• <b>Text Chat:</b> Type your message and hit send.</p>
       <p>• <b>Long-Press:</b> Hold any chat bubble to Copy, Delete, or Read Aloud.</p>
-      <p>• <b>Vision:</b> Use the '+' icon to upload images for the AI to analyze.</p>
+      <p>• <b>Vision:</b> Use the '+' icon to upload images and files for the AI to analyze.</p>
+      <p>• <b>Sessions:</b> Long-press any session in the menu to delete it permanently.</p>
       <p>• <b>Voice Agent:</b> Tap the sparkles for a full-screen, hands-free conversation mode.</p>
       <p>• <b>Sign In:</b> Login to Puter to enable specialized models and persistent memory.</p>
       <div class="modal-buttons">
@@ -251,7 +264,7 @@
       <p style="font-size: 14px; color: #666;">Set a system behavior for the AI models.</p>
       <textarea id="customInput" style="width:100%; height:120px; padding:10px; border-radius:8px; border:1px solid #ccc; outline:none;"></textarea>
       <div class="modal-buttons">
-        <button class="btn-secondary" onclick="closeModal('customModal')">Cancel</button>
+        <button class="btn-secondary" onclick="closeModal('customModal') anchor: 'none'">Cancel</button>
         <button class="btn-primary" onclick="saveCustom()">Save</button>
       </div>
     </div>
@@ -271,7 +284,8 @@
   </div>
 
   <script>
-    let currentImageData = null;
+    /* --- ENHANCEMENT: STAGED FILES STORAGE --- */
+    let stagedFiles = []; // Replaces currentImageData
     let customInstruction = localStorage.getItem('puter_custom_ins') || "";
     let globalSelectedModel = ""; // Replaces the select.value logic
     let lastAuthStatus = null; // Guard to prevent UI Blinking loops
@@ -288,7 +302,8 @@
     function handleInput() {
       const input = document.getElementById('puterChatInput');
       const container = document.getElementById('puterSearchBarContainer');
-      if (input.value.trim().length > 0) {
+      // Updated visibility logic to check for text OR staged files
+      if (input.value.trim().length > 0 || stagedFiles.length > 0) {
         container.classList.add('has-text');
       } else {
         container.classList.remove('has-text');
@@ -552,8 +567,7 @@
         }
     }
 
-    // 2. Main Chat Logic with ECG LOADER & AUTO-READ FIX
-    // Requirement: fromVoice parameter ensures normal text isn't read aloud.
+    // 2. Main Chat Logic with ECG LOADER & MULTI-FILE PAYLOAD
     async function sendMessage(fromVoice = false) {
       console.log("Send Clicked. Voice Active: " + fromVoice);
       
@@ -578,15 +592,41 @@
       const input = document.getElementById('puterChatInput');
       const text = input.value.trim();
       const model = globalSelectedModel; 
-      if(!text && !currentImageData) return;
+      
+      // REQUIREMENT: Must check both text and stagedFiles
+      if(!text && stagedFiles.length === 0) return;
 
-      appendChat("User", text || "[Image Uploaded]");
+      // Construct user UI display
+      let displayMessage = text;
+      if (stagedFiles.length > 0 && !text) {
+          displayMessage = "[Files Uploaded]";
+      } else if (stagedFiles.length > 0) {
+          displayMessage += " [Attached Files]";
+      }
+
+      appendChat("User", displayMessage);
       input.value = "";
       handleInput(); 
 
-      let content = text;
-      if (currentImageData) {
-        content = [{type:"text", text: text}, {type:"image_url", image_url:{url: currentImageData}}];
+      // REQUIREMENT: Multi-file block construction for AI payload
+      let content = [];
+      if (text) {
+          content.push({type: "text", text: text});
+      }
+      
+      stagedFiles.forEach(file => {
+          if (file.type.startsWith('image/')) {
+              // Vision content block
+              content.push({type: "image_url", image_url: {url: file.data}});
+          } else {
+              // Text-based content block for docs/code
+              content.push({type: "text", text: `[Attached File: ${file.name}]\n${file.data}`});
+          }
+      });
+
+      // If it's a single text message and no files, keep it simple for the SDK
+      if (content.length === 1 && content[0].type === "text") {
+          content = text;
       }
 
       // SHOW ECG LOADER (Requirement #6)
@@ -612,7 +652,7 @@
             window.AndroidInterface.speak(botMsg);
         }
 
-        clearImage();
+        clearFiles(); // Reset staged files after success
       } catch(e) { 
         loader.style.display = 'none';
         console.error("API Call Failed: " + e.message);
@@ -686,6 +726,10 @@
         } else if(action === 'read') {
             if(window.AndroidInterface) window.AndroidInterface.speak(text);
         } else if(action === 'delete') {
+            
+            // REQUIREMENT: Stop AI speech if deleted
+            if(window.AndroidInterface) window.AndroidInterface.stopSpeaking();
+
             // Remove from UI
             const el = document.getElementById(id);
             if(el) el.remove();
@@ -714,7 +758,7 @@
         chatHistory.forEach(item => appendChat(item.sender, item.text, true));
     }
 
-    /* --- REQUIREMENT #3: DYNAMIC SESSION LOGIC --- */
+    /* --- REQUIREMENT #3: DYNAMIC SESSION LOGIC WITH DELETE --- */
 
     function renderDynamicSessionList() {
         const container = document.getElementById('dynamicSessions');
@@ -729,11 +773,34 @@
         // Sort sessions by date (ID is timestamp)
         keys.sort((a, b) => b - a);
 
-        let html = '<li class="session-divider">Old Sessions</li>';
-        keys.forEach((id, index) => {
-            html += `<li onclick="loadSession('${id}')">Session ${keys.length - index}</li>`;
-        });
+        let html = '<li class="session-divider">Old Sessions (Long-press to delete)</li>';
         container.innerHTML = html;
+
+        keys.forEach((id, index) => {
+            const li = document.createElement('li');
+            li.textContent = `Session ${keys.length - index}`;
+            
+            // REQUIREMENT: Long-press deletion logic
+            let sessionPressTimer;
+            li.onpointerdown = (e) => {
+                sessionPressTimer = window.setTimeout(() => {
+                    if (confirm("Delete this chat session permanently?")) {
+                        // Call native bridge to remove from shared preferences
+                        if(window.AndroidInterface) window.AndroidInterface.deleteSession(id);
+                        // Remove from local storage
+                        localStorage.removeItem('puter_chat_history_' + id);
+                        renderDynamicSessionList();
+                        // If it's the current session, start new one
+                        if(currentSessionId === id) newSession();
+                    }
+                }, 800);
+            };
+            li.onpointerup = () => clearTimeout(sessionPressTimer);
+            li.onpointercancel = () => clearTimeout(sessionPressTimer);
+            
+            li.onclick = () => loadSession(id);
+            container.appendChild(li);
+        });
     }
 
     function loadSession(id) {
@@ -743,7 +810,6 @@
         document.getElementById('puterChatLog').innerHTML = '';
         loadSavedHistory();
         document.getElementById('puterDropdownMenu').classList.remove('show');
-        alert("Switched to Session");
     }
 
     // 4. Android Bridge Handlers
@@ -763,13 +829,64 @@
         }
     };
 
+    /* --- FEATURE ENHANCEMENT: FILE PICKER RESULT HANDLER --- */
     window.onImageResult = (base64) => {
-      console.log("Image Data Received via Bridge");
-      currentImageData = base64;
-      const img = document.getElementById('imagePreview');
-      img.src = base64;
-      img.style.display = 'block';
+      console.log("New File/Image Data Received via Bridge");
+      
+      const fileName = "Upload_" + stagedFiles.length;
+      // Get MIME type from the Data URI
+      const match = base64.match(/^data:([^;]+);base64,/);
+      const mime = match ? match[1] : "application/octet-stream";
+
+      // Add to array
+      stagedFiles.push({
+          name: fileName,
+          type: mime,
+          data: base64
+      });
+
+      renderThumbnails();
+      handleInput();
     };
+
+    function renderThumbnails() {
+        const area = document.getElementById('thumbnailArea');
+        area.innerHTML = '';
+
+        stagedFiles.forEach((file, index) => {
+            const div = document.createElement('div');
+            div.className = 'thumbnail';
+
+            if (file.type.startsWith('image/')) {
+                // Show actual image
+                div.innerHTML = `<img src="${file.data}">`;
+            } else {
+                // Show generic file icon with extension
+                const ext = file.type.split('/')[1] || "FILE";
+                div.innerHTML = `<span class="file-ext-icon">${ext.toUpperCase().substring(0, 3)}</span>`;
+            }
+
+            // Add remove button
+            const removeBtn = document.createElement('div');
+            removeBtn.className = 'thumb-remove-btn';
+            removeBtn.innerHTML = '×';
+            removeBtn.onclick = (e) => {
+                e.stopPropagation();
+                stagedFiles.splice(index, 1);
+                renderThumbnails();
+                handleInput();
+            };
+
+            div.appendChild(removeBtn);
+            area.appendChild(div);
+        });
+    }
+
+    function clearFiles() {
+        stagedFiles = [];
+        renderThumbnails();
+        handleInput();
+    }
 
     // 5. SDK-DRIVEN AUTHENTICATION WITH CORE BUG FIXES
     async function handleAuthAction(fromSendError = false) {
@@ -851,14 +968,9 @@
       
       document.getElementById('puterChatLog').innerHTML = '';
       chatHistory = [];
-      clearImage();
+      clearFiles();
       console.log("New Session ID generated: " + currentSessionId);
       alert("New Session Started");
-    }
-
-    function clearImage() {
-      currentImageData = null;
-      document.getElementById('imagePreview').style.display = 'none';
     }
 
     // Execute immediately on load
