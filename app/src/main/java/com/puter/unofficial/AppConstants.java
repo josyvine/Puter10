@@ -11,6 +11,9 @@ public class AppConstants {
     public static final String PREF_NAME = "PuterPrefs";
     public static final String KEY_IS_LOGGED_IN = "is_logged_in";
     public static final String KEY_CUSTOM_INSTRUCTION = "puter_custom_instruction";
+    
+    // NEW: Key for local chat history persistence (Enhancement #4)
+    public static final String KEY_CHAT_HISTORY = "puter_chat_history";
 
     // --- PUTER URLs ---
     // The main entry point for Puter.com authentication via browser redirect.
