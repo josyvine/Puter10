@@ -39,6 +39,14 @@
             android:theme="@style/Theme.Puter.Light">
         </activity>
 
+        <!-- FIXED: Added VoiceAgentActivity registration to allow the full-screen popup to launch -->
+        <activity
+            android:name=".VoiceAgentActivity"
+            android:exported="false"
+            android:screenOrientation="portrait"
+            android:theme="@style/Theme.AppCompat.Light.NoActionBar">
+        </activity>
+
         <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.fileprovider"
