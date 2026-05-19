@@ -1,6 +1,8 @@
 package com.puter.unofficial;
 
 import android.app.Activity;
+import android.content.ClipData;
+import android.content.ClipboardManager;
 import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
@@ -139,6 +141,22 @@ public class WebAppInterface {
     }
 
     // --- ENHANCED BRIDGE METHODS ---
+
+    /**
+     * Requirement #1: Copy to Clipboard helper.
+     * Provides a native implementation for the context menu "Copy" action.
+     */
+    @JavascriptInterface
+    public void copyToClipboard(String text) {
+        ((Activity) context).runOnUiThread(() -> {
+            ClipboardManager clipboard = (ClipboardManager) context.getSystemService(Context.CLIPBOARD_SERVICE);
+            ClipData clip = ClipData.newPlainText("PuterChat", text);
+            if (clipboard != null) {
+                clipboard.setPrimaryClip(clip);
+                Toast.makeText(context, "Copied to clipboard", Toast.LENGTH_SHORT).show();
+            }
+        });
+    }
 
     /**
      * Reads a local asset file and returns its content as a string.
