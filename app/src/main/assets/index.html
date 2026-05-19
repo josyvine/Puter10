@@ -52,11 +52,26 @@
     .chat-container { display: flex; flex-direction: column; flex: 1; width: 100%; position: relative; z-index: 5; padding: 15px; margin-top: 130px; margin-bottom: 80px; }
     .chat-log { flex: 1; width: 100%; }
 
-    .message { display: flex; align-items: flex-start; margin-bottom: 20px; width: 100%; }
+    .message { display: flex; align-items: flex-start; margin-bottom: 20px; width: 100%; -webkit-user-select: none; user-select: none; }
     .user-message { flex-direction: row-reverse; }
     .message-content { flex-grow: 0; max-width: 85%; padding: 12px 16px; border-radius: 18px; font-size: 16px; line-height: 1.4; box-shadow: 0 1px 2px rgba(0,0,0,0.15); overflow-wrap: break-word; }
     .user-message .message-content { background-color: #007bff; color: white; border-bottom-right-radius: 4px; }
     .bot-message .message-content { background-color: #e5e5ea; color: black; border-bottom-left-radius: 4px; }
+
+    /* --- ENHANCEMENT: ECG LOADER CSS --- */
+    .loader-container { display: none; flex-direction: column; align-items: center; justify-content: center; margin: 20px 0; width: 100%; }
+    .ecg-graph { width: 120px; height: 30px; }
+    .ecg-path { fill: none; stroke: #1a73e8; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; stroke-dasharray: 200; stroke-dashoffset: 200; animation: ecg-flow 1.5s linear infinite; }
+    @keyframes ecg-flow { 0% { stroke-dashoffset: 200; } 100% { stroke-dashoffset: -200; } }
+    .loader-text { font-size: 13px; color: #666; margin-top: 8px; font-weight: bold; }
+
+    /* --- ENHANCEMENT: CONTEXT MENU CSS --- */
+    .context-menu { position: fixed; background: #fff; border-radius: 12px; box-shadow: 0 5px 20px rgba(0,0,0,0.3); display: none; z-index: 1000; min-width: 150px; padding: 5px 0; border: 1px solid #ddd; }
+    .context-menu li { list-style: none; padding: 12px 20px; font-size: 15px; cursor: pointer; display: flex; align-items: center; gap: 10px; color: #333; }
+    .context-menu li:hover { background: #f0f0f0; }
+    .context-menu li span { font-size: 18px; color: #1a73e8; }
+    .delete-action { color: #d93025 !important; }
+    .delete-action span { color: #d93025 !important; }
 
     /* --- FIXED SEARCH BAR CSS --- */
     .chat-controls { position: fixed; bottom: 0; left: 0; width: 100%; background: #fff; padding: 10px; z-index: 110; border-top: 1px solid #ddd; }
@@ -163,6 +178,14 @@
 
   <div class="chat-container">
     <div id="puterChatLog" class="chat-log"></div>
+    
+    <!-- ENHANCEMENT: ECG GRAPH LOADER -->
+    <div id="ecgLoader" class="loader-container">
+        <svg class="ecg-graph" viewBox="0 0 100 30">
+            <path class="ecg-path" d="M0,15 L25,15 L30,5 L35,25 L40,15 L60,15 L65,0 L75,30 L80,15 L100,15" />
+        </svg>
+        <div class="loader-text">AI is answering...</div>
+    </div>
   </div>
 
   <div class="chat-controls">
@@ -193,11 +216,19 @@
     </div>
   </div>
 
+  <!-- ENHANCEMENT: LONG PRESS CONTEXT MENU -->
+  <ul id="customContextMenu" class="context-menu">
+      <li onclick="handleMenuAction('copy')"><span class="material-symbols-outlined">content_copy</span> Copy Chat</li>
+      <li onclick="handleMenuAction('read')"><span class="material-symbols-outlined">volume_up</span> Read Aloud</li>
+      <li onclick="handleMenuAction('delete')" class="delete-action"><span class="material-symbols-outlined">delete</span> Delete Chat</li>
+  </ul>
+
   <!-- HELP MODAL -->
   <div class="modal-overlay" id="helpModal">
     <div class="modal">
       <h3>Puter Unofficial Help</h3>
       <p>• <b>Text Chat:</b> Type your message and hit send.</p>
+      <p>• <b>Long-Press:</b> Hold any chat bubble to Copy, Delete, or Read Aloud.</p>
       <p>• <b>Vision:</b> Use the '+' icon to upload images for the AI to analyze.</p>
       <p>• <b>Voice Agent:</b> Tap the sparkles for a full-screen, hands-free conversation mode.</p>
       <p>• <b>Sign In:</b> Login to Puter to enable specialized models and persistent memory.</p>
@@ -225,7 +256,7 @@
     <div class="modal">
       <h3>Chat History</h3>
       <div id="historyList" style="max-height: 300px; overflow-y: auto; font-size: 14px;">
-        <p>Your local session history appears here.</p>
+        <!-- Dynamically filled by JS -->
       </div>
       <div class="modal-buttons">
         <button class="btn-secondary" onclick="closeModal('historyModal')">Close</button>
@@ -238,6 +269,10 @@
     let customInstruction = localStorage.getItem('puter_custom_ins') || "";
     let globalSelectedModel = ""; // Replaces the select.value logic
     let lastAuthStatus = null; // Guard to prevent UI Blinking loops
+
+    /* --- HISTORY & CONTEXT STATE --- */
+    let chatHistory = JSON.parse(localStorage.getItem('puter_chat_history') || "[]");
+    let activeMessageContext = null; 
 
     function handleInput() {
       const input = document.getElementById('puterChatInput');
@@ -259,6 +294,8 @@
       if (!e.target.closest('.custom-select-container')) {
           document.getElementById('accordionMenu').classList.remove('show');
       }
+      // Close Context Menu
+      document.getElementById('customContextMenu').style.display = 'none';
     };
 
     document.getElementById('puterMenuButton').onclick = (e) => {
@@ -266,7 +303,10 @@
       document.getElementById('puterDropdownMenu').classList.toggle('show');
     };
 
-    function openModal(id) { document.getElementById(id).style.display = 'flex'; }
+    function openModal(id) { 
+        if(id === 'historyModal') renderHistory();
+        document.getElementById(id).style.display = 'flex'; 
+    }
     function closeModal(id) { document.getElementById(id).style.display = 'none'; }
 
     // --- NEW CUSTOM ACCORDION UI LOGIC ---
@@ -391,30 +431,25 @@
       }
     }
 
-    // 2. Main Chat Logic with CORE AUTH PERSISTENCE FIX
+    // 2. Main Chat Logic with ECG LOADER & AUTO-READ FIX
     async function sendMessage() {
       console.log("Send Clicked. Checking Puter Auth...");
       
-      // PERSISTENCE FIX: Replace reliably check for existence of puter.auth
-      // and ensure the SDK is fully initialized before requesting state.
       if (typeof puter === 'undefined' || !puter.auth || !puter.auth.isSignedIn()) {
           console.warn("Auth Check initial fail. Waiting for cookie/session settlement...");
-          // Small buffer to allow asynchronous session recovery on secure origin
           await new Promise(r => setTimeout(r, 600));
       }
 
       if (typeof puter === 'undefined' || !puter.auth || !puter.auth.isSignedIn()) {
         console.error("Auth Check Final Failed. Real session not detected.");
         alert("Please sign in to start chatting with Puter.");
-        handleAuthAction(true); // Flag prevents accidental sign-out cycle
+        handleAuthAction(true); 
         return;
       }
 
       const input = document.getElementById('puterChatInput');
       const text = input.value.trim();
-      
       const model = globalSelectedModel; 
-      
       if(!text && !currentImageData) return;
 
       appendChat("User", text || "[Image Uploaded]");
@@ -426,31 +461,125 @@
         content = [{type:"text", text: text}, {type:"image_url", image_url:{url: currentImageData}}];
       }
 
+      // SHOW ECG LOADER (Requirement #6)
+      const loader = document.getElementById('ecgLoader');
+      loader.style.display = 'flex';
+      window.scrollTo(0, document.body.scrollHeight);
+
       try {
         console.log("Requesting AI Response for model: " + model);
         const resp = await puter.ai.chat(content, {model: model, system_message: customInstruction});
         const botMsg = resp.message.content;
+
+        // HIDE ECG LOADER
+        loader.style.display = 'none';
+
         appendChat("Bot", botMsg);
 
-        if(window.AndroidInterface) window.AndroidInterface.speak(botMsg);
+        // REQUIREMENT: REMOVED AUTOMATIC SPEECH. 
+        // Logic moved to context menu "Read Aloud".
 
         clearImage();
       } catch(e) { 
+        loader.style.display = 'none';
         console.error("API Call Failed: " + e.message);
         appendChat("System", "Error: " + e.message); 
       }
     }
 
-    function appendChat(sender, text) {
+    // 3. Append Chat with LONG PRESS & HISTORY Support
+    function appendChat(sender, text, isLoad = false) {
       const log = document.getElementById('puterChatLog');
+      const msgId = Date.now() + Math.random();
+      
       const div = document.createElement('div');
       div.className = "message " + (sender === "User" ? "user-message" : "bot-message");
+      div.id = "msg-" + msgId;
+      
+      // ENHANCEMENT: LONG PRESS HANDLER
+      let pressTimer;
+      div.onpointerdown = (e) => {
+          pressTimer = window.setTimeout(() => {
+              showContextMenu(e, text, "msg-" + msgId);
+          }, 700); // 700ms long press
+      };
+      div.onpointerup = () => clearTimeout(pressTimer);
+      div.onpointercancel = () => clearTimeout(pressTimer);
+      div.oncontextmenu = (e) => e.preventDefault(); // Disable system context menu
+
       div.innerHTML = `<div class="message-content"><b>${sender}:</b><br>${marked.parse(text)}</div>`;
       log.appendChild(div);
+      
+      // Persist to history if it's a real chat turn
+      if(!isLoad && (sender === "User" || sender === "Bot")) {
+          chatHistory.push({sender, text, id: "msg-" + msgId});
+          localStorage.setItem('puter_chat_history', JSON.stringify(chatHistory));
+      }
+
       window.scrollTo(0, document.body.scrollHeight);
     }
 
-    // 3. Android Bridge Handlers
+    // --- ENHANCEMENT: CONTEXT MENU ACTIONS ---
+    function showContextMenu(e, text, id) {
+        activeMessageContext = { text, id };
+        const menu = document.getElementById('customContextMenu');
+        menu.style.display = 'block';
+        
+        // Position near finger
+        let x = e.clientX;
+        let y = e.clientY;
+        
+        // Overflow check
+        if(x + 150 > window.innerWidth) x -= 150;
+        if(y + 150 > window.innerHeight) y -= 150;
+
+        menu.style.left = x + "px";
+        menu.style.top = y + "px";
+    }
+
+    function handleMenuAction(action) {
+        if(!activeMessageContext) return;
+        const { text, id } = activeMessageContext;
+
+        if(action === 'copy') {
+            if(window.AndroidInterface) {
+                window.AndroidInterface.copyToClipboard(text);
+            } else {
+                navigator.clipboard.writeText(text);
+                alert("Copied to clipboard");
+            }
+        } else if(action === 'read') {
+            if(window.AndroidInterface) window.AndroidInterface.speak(text);
+        } else if(action === 'delete') {
+            // Remove from UI
+            const el = document.getElementById(id);
+            if(el) el.remove();
+            // Remove from History
+            chatHistory = chatHistory.filter(m => m.id !== id);
+            localStorage.setItem('puter_chat_history', JSON.stringify(chatHistory));
+        }
+        document.getElementById('customContextMenu').style.display = 'none';
+    }
+
+    // --- ENHANCEMENT: HISTORY PERSISTENCE ---
+    function renderHistory() {
+        const list = document.getElementById('historyList');
+        if(chatHistory.length === 0) {
+            list.innerHTML = "<p style='color:#999;'>No history available.</p>";
+            return;
+        }
+        list.innerHTML = chatHistory.map(item => `
+            <div style="padding:10px; border-bottom:1px solid #eee;">
+                <b>${item.sender}:</b> ${item.text.substring(0, 60)}...
+            </div>
+        `).join('');
+    }
+
+    function loadSavedHistory() {
+        chatHistory.forEach(item => appendChat(item.sender, item.text, true));
+    }
+
+    // 4. Android Bridge Handlers
     window.onSpeechResult = (text) => {
       console.log("Speech Result Received: " + text);
       document.getElementById('puterChatInput').value = text;
@@ -466,7 +595,7 @@
       img.style.display = 'block';
     };
 
-    // 4. SDK-DRIVEN AUTHENTICATION WITH CORE BUG FIXES
+    // 5. SDK-DRIVEN AUTHENTICATION WITH CORE BUG FIXES
     async function handleAuthAction(fromSendError = false) {
         try {
             if (typeof puter === 'undefined' || !puter.auth) {
@@ -474,8 +603,6 @@
                 return;
             }
             if (puter.auth.isSignedIn()) {
-                // CORE FIX: Prevent the logic from accidentally signing out the user
-                // if they are in the middle of a session transition.
                 if (fromSendError) {
                     console.log("Accidental Sign-Out Guard: Blocking logout during send check.");
                     return;
@@ -486,7 +613,6 @@
                 updateAuthUI();
             } else {
                 console.log("Triggering Puter SDK SignIn popup...");
-                // Note: Popup closing is managed by MyWebChromeClient with redirect delay.
                 await puter.auth.signIn(); 
             }
         } catch (error) {
@@ -495,10 +621,6 @@
         }
     }
 
-    /**
-     * CORE FIX: Native Token injection is removed to allow the Secure Origin 
-     * to manage session headers natively. We check for a record but do not override.
-     */
     function syncAuthSession() {
         console.log("Origin Check: " + window.location.origin);
         if (window.AndroidInterface && window.AndroidInterface.getSavedAuthToken) {
@@ -509,22 +631,13 @@
         }
     }
 
-    /**
-     * MASTER UI UPDATE: This is the single source of truth for auth UI state.
-     * It synchronizes the Native AuthManager only AFTER the SDK verifies the session.
-     */
     function updateAuthUI() {
       if (typeof puter !== 'undefined' && puter.auth && window.AndroidInterface) {
         const logged = puter.auth.isSignedIn();
         console.log("Auth State Synchronized: " + logged);
-
-        // Logic guard prevents redundant bridge calls and UI flickering
         if (logged === lastAuthStatus) return;
         lastAuthStatus = logged;
-
         document.getElementById('authOption').textContent = logged ? "Sign Out" : "Sign In";
-        
-        // Sync the mirror state in Android SharedPreferences
         window.AndroidInterface.onAuthStatusChanged(logged);
       }
     }
@@ -550,10 +663,14 @@
       }
     }
 
+    // REQUIREMENT #5: NEW SESSION FIX
     function newSession() {
       document.getElementById('puterChatLog').innerHTML = '';
+      chatHistory = [];
+      localStorage.removeItem('puter_chat_history');
       clearImage();
-      console.log("Session Cleared.");
+      console.log("Session and History Cleared.");
+      alert("New Session Started");
     }
 
     function clearImage() {
@@ -567,13 +684,13 @@
         
         syncAuthSession();
         loadModels();
+        loadSavedHistory();
         document.getElementById('customInput').value = customInstruction;
 
         if (typeof puter !== 'undefined') {
             console.log("Puter SDK detected. Waiting for ready signal...");
             puter.ready(() => {
                 console.log("Puter SDK Ready. Finalizing Session UI...");
-                // Force a status sync once the SDK confirms the origin state
                 updateAuthUI();
             });
         } else {
