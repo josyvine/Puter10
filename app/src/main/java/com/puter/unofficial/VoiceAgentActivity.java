@@ -22,6 +22,7 @@ import java.util.Locale;
 /**
  * Full-screen Native Voice Agent Activity for Puter Unofficial.
  * This implementation enables a continuous, hands-free conversation loop.
+ * UPDATED: Optimized for Barge-in and Always-on listening during AI speech.
  */
 public class VoiceAgentActivity extends AppCompatActivity {
 
@@ -65,6 +66,8 @@ public class VoiceAgentActivity extends AppCompatActivity {
         recognizerIntent = new Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH);
         recognizerIntent.putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM);
         recognizerIntent.putExtra(RecognizerIntent.EXTRA_LANGUAGE, Locale.getDefault());
+        // Required for barge-in: allows the recognizer to process sound while speakers are active
+        recognizerIntent.putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true);
 
         setupSTTListener();
 
@@ -82,18 +85,23 @@ public class VoiceAgentActivity extends AppCompatActivity {
             public void onStart(String utteranceId) {
                 isAIspeaking = true;
                 runOnUiThread(() -> tvStatus.setText("Puter is speaking..."));
+                
+                // REQUIREMENT #2: Start listening IMMEDIATELY when AI starts talking
+                // This allows the user to interrupt (Barge-in) at any time.
+                runOnUiThread(() -> startListening());
             }
 
             @Override
             public void onDone(String utteranceId) {
                 isAIspeaking = false;
-                // CONTINUOUS FLOW: Start listening again as soon as AI is done
+                // CONTINUOUS FLOW: Re-open mic to wait for next user command
                 runOnUiThread(() -> startListening());
             }
 
             @Override
             public void onError(String utteranceId) {
                 isAIspeaking = false;
+                runOnUiThread(() -> startListening());
             }
         });
     }
@@ -110,6 +118,7 @@ public class VoiceAgentActivity extends AppCompatActivity {
             public void onBeginningOfSpeech() {
                 // BARGE-IN: If user talks while AI is speaking, kill the AI speech immediately
                 if (tts != null && tts.isSpeaking()) {
+                    Log.d(TAG, "Barge-in detected: Stopping TTS");
                     tts.stop();
                     isAIspeaking = false;
                 }
@@ -129,7 +138,12 @@ public class VoiceAgentActivity extends AppCompatActivity {
             @Override
             public void onError(int error) {
                 isListening = false;
-                tvStatus.setText("Tap mic to try again");
+                // Auto-restart listening on timeout errors to maintain "Always Listening"
+                if (error == SpeechRecognizer.ERROR_SPEECH_TIMEOUT || error == SpeechRecognizer.ERROR_NO_MATCH) {
+                    startListening();
+                } else {
+                    tvStatus.setText("Tap mic to try again");
+                }
             }
 
             @Override
@@ -148,6 +162,12 @@ public class VoiceAgentActivity extends AppCompatActivity {
                 ArrayList<String> matches = partialResults.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION);
                 if (matches != null && !matches.isEmpty()) {
                     tvTranscript.setText(matches.get(0));
+                    
+                    // Live Barge-in: Stop TTS as soon as partial speech is recognized
+                    if (tts != null && tts.isSpeaking()) {
+                        tts.stop();
+                        isAIspeaking = false;
+                    }
                 }
             }
 
@@ -163,6 +183,7 @@ public class VoiceAgentActivity extends AppCompatActivity {
                 if ("PUTER_AI_RESPONSE".equals(intent.getAction())) {
                     String aiText = intent.getStringExtra("RESPONSE_TEXT");
                     if (aiText != null) {
+                        // REQUIREMENT #1: AI talks the response lively
                         speakAIResponse(aiText);
                     }
                 }
@@ -186,13 +207,21 @@ public class VoiceAgentActivity extends AppCompatActivity {
 
     public void speakAIResponse(String response) {
         if (tts != null) {
+            // Flush ensures modern "Barge-in" interruption logic
             tts.speak(response, TextToSpeech.QUEUE_FLUSH, null, "VOICE_AGENT_ID");
         }
     }
 
+    /**
+     * Starts listening. Removed the gate that prevented listening during speech.
+     */
     private void startListening() {
-        if (!isListening && !isAIspeaking) {
-            speechRecognizer.startListening(recognizerIntent);
+        if (!isListening) {
+            try {
+                speechRecognizer.startListening(recognizerIntent);
+            } catch (Exception e) {
+                Log.e(TAG, "Error starting recognizer: " + e.getMessage());
+            }
         }
     }
 
