@@ -917,11 +917,16 @@
             };
             const mappedRatioObject = ratioMap[aspectRatio] || { w: 1, h: 1 };
 
+            // COMPATIBILITY OPTIMIZATION: Ensure the parameters support legacy and modern multimodal chat image models
             const response = await puter.ai.chat(finalPayload, {
                 model: model,
                 system_message: customInstruction,
                 stream: false,
-                ratio: mappedRatioObject
+                aspect_ratio: aspectRatio,
+                ratio: mappedRatioObject,
+                image_config: {
+                    aspect_ratio: aspectRatio
+                }
             });
 
             loader.style.display = 'none';
