@@ -222,6 +222,7 @@ public class WebAppInterface {
     /**
      * REQUIREMENT #3: Delete a specific chat session from native storage.
      * Updates SharedPreferences to remove the session key permanently.
+     * ENHANCED: Also purges specific Web Scraper items and indices if matched.
      */
     @JavascriptInterface
     public void deleteSession(String sessionId) {
@@ -231,6 +232,28 @@ public class WebAppInterface {
             prefs.edit().remove("session_" + sessionId).apply();
             // Also ensure any web-side history keys are cleared if they were mirrored
             prefs.edit().remove("puter_chat_history_" + sessionId).apply();
+
+            // Scraper Deletion Support:
+            String scrapedKey = "puter_scraped_product_" + sessionId;
+            if (prefs.contains(scrapedKey)) {
+                prefs.edit().remove(scrapedKey).apply();
+                // Update global index puter_scraped_index
+                String indexStr = prefs.getString(AppConstants.KEY_SCRAPED_PRODUCTS_INDEX, "[]");
+                try {
+                    org.json.JSONArray array = new org.json.JSONArray(indexStr);
+                    org.json.JSONArray newArray = new org.json.JSONArray();
+                    for (int i = 0; i < array.length(); i++) {
+                        String item = array.getString(i);
+                        if (!item.equals(sessionId)) {
+                            newArray.put(item);
+                        }
+                    }
+                    prefs.edit().putString(AppConstants.KEY_SCRAPED_PRODUCTS_INDEX, newArray.toString()).apply();
+                    nativeLog("Deleted scraped item [" + sessionId + "] from device storage.", "native");
+                } catch (Exception e) {
+                    Log.e("WebAppInterface", "Error updating scraped index on delete", e);
+                }
+            }
         }
     }
 
@@ -334,6 +357,120 @@ public class WebAppInterface {
             nativeLog("Secure Context established. Manual token backup not required.", "native");
             prefs.edit().putString("puter_auth_token", token).apply();
         }
+    }
+
+    // --- NEW WEB SCRAPER ENGINE INTERFACES ---
+
+    /**
+     * Writes parsed product/article payloads directly to native storage.
+     * Automatically registers and tracks the target ID inside the global index map.
+     */
+    @JavascriptInterface
+    public void addScrapedProduct(String id, String json) {
+        if (id == null || json == null) return;
+        nativeLog("Bridge: Saving scraped product ID: " + id, "native");
+        prefs.edit().putString("puter_scraped_product_" + id, json).apply();
+
+        // Update the global index list "puter_scraped_index"
+        String indexStr = prefs.getString(AppConstants.KEY_SCRAPED_PRODUCTS_INDEX, "[]");
+        try {
+            org.json.JSONArray array = new org.json.JSONArray(indexStr);
+            boolean exists = false;
+            for (int i = 0; i < array.length(); i++) {
+                if (array.getString(i).equals(id)) {
+                    exists = true;
+                    break;
+                }
+            }
+            if (!exists) {
+                array.put(id);
+                prefs.edit().putString(AppConstants.KEY_SCRAPED_PRODUCTS_INDEX, array.toString()).apply();
+            }
+        } catch (Exception e) {
+            Log.e("WebAppInterface", "Error updating scraped index list", e);
+        }
+    }
+
+    /**
+     * Pulls the saved crawled list index and returns them as a unified JSON array.
+     */
+    @JavascriptInterface
+    public String getScrapedProducts() {
+        String indexStr = prefs.getString(AppConstants.KEY_SCRAPED_PRODUCTS_INDEX, "[]");
+        org.json.JSONArray resultList = new org.json.JSONArray();
+        try {
+            org.json.JSONArray indexArray = new org.json.JSONArray(indexStr);
+            for (int i = 0; i < indexArray.length(); i++) {
+                String id = indexArray.getString(i);
+                String productJson = prefs.getString("puter_scraped_product_" + id, null);
+                if (productJson != null) {
+                    try {
+                        org.json.JSONObject obj = new org.json.JSONObject(productJson);
+                        obj.put("scraped_id", id);
+                        resultList.put(obj);
+                    } catch (Exception parseException) {
+                        // Raw text format fallback (Universal Mode raw string parsing)
+                        org.json.JSONObject wrapper = new org.json.JSONObject();
+                        wrapper.put("scraped_id", id);
+                        wrapper.put("raw_data", productJson);
+                        resultList.put(wrapper);
+                    }
+                }
+            }
+        } catch (Exception e) {
+            Log.e("WebAppInterface", "Error building scraped products list", e);
+        }
+        return resultList.toString();
+    }
+
+    /**
+     * Stores the compiled browser crawling queue natively to persist states.
+     */
+    @JavascriptInterface
+    public void addQueueLinks(String linksJson) {
+        prefs.edit().putString(AppConstants.KEY_SCRAPER_QUEUE, linksJson).apply();
+        nativeLog("Queue links updated in SharedPreferences.", "native");
+    }
+
+    /**
+     * Pops (removes) the first element (index 0) from the queue list and returns it.
+     */
+    @JavascriptInterface
+    public String popQueueLink() {
+        String queueStr = prefs.getString(AppConstants.KEY_SCRAPER_QUEUE, "[]");
+        try {
+            org.json.JSONArray array = new org.json.JSONArray(queueStr);
+            if (array.length() > 0) {
+                String nextUrl = array.getString(0);
+                org.json.JSONArray newArray = new org.json.JSONArray();
+                for (int i = 1; i < array.length(); i++) {
+                    newArray.put(array.get(i));
+                }
+                prefs.edit().putString(AppConstants.KEY_SCRAPER_QUEUE, newArray.toString()).apply();
+                nativeLog("Popped next URL from queue: " + nextUrl, "native");
+                return nextUrl;
+            }
+        } catch (Exception e) {
+            Log.e("WebAppInterface", "Error popping link from queue", e);
+        }
+        return "";
+    }
+
+    /**
+     * Directs the active WebView viewport to load specific local files securely.
+     */
+    @JavascriptInterface
+    public void loadLocalUrl(String pageName) {
+        nativeLog("Loading local URL: " + pageName, "native");
+        final String targetUrl;
+        if ("browser.html".equals(pageName)) {
+            targetUrl = AppConstants.LOCAL_BROWSER_URL;
+        } else if ("scraper.html".equals(pageName)) {
+            targetUrl = AppConstants.LOCAL_SCRAPER_URL;
+        } else {
+            targetUrl = AppConstants.LOCAL_INDEX_URL;
+        }
+        webView.post(() -> webView.loadUrl(targetUrl));
     }
 
     // --- AUTH UI INTEGRATION ---
