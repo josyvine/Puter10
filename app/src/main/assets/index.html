@@ -10,6 +10,11 @@
   <!-- SDK loaded without async to ensure availability for sync initialization -->
   <script src="https://js.puter.com/v2/"></script>
   <script src="https://cdn.jsdelivr.net/npm/marked@4.0.0/marked.min.js"></script>
+  
+  <!-- ENHANCEMENT: Highlight.js for Syntax Coloring -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.7.0/styles/github-dark.min.css">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.7.0/highlight.min.js"></script>
+  
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" />
   <style>
     * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
@@ -58,7 +63,8 @@
 
     .message { display: flex; align-items: flex-start; margin-bottom: 20px; width: 100%; -webkit-user-select: none; user-select: none; }
     .user-message { flex-direction: row-reverse; }
-    .message-content { flex-grow: 0; max-width: 85%; padding: 12px 16px; border-radius: 18px; font-size: 16px; line-height: 1.4; box-shadow: 0 1px 2px rgba(0,0,0,0.15); overflow-wrap: break-word; }
+    /* ENHANCEMENT: Adjusted max-width to 90% for better code readability */
+    .message-content { flex-grow: 0; max-width: 90%; padding: 12px 16px; border-radius: 18px; font-size: 16px; line-height: 1.4; box-shadow: 0 1px 2px rgba(0,0,0,0.15); overflow-wrap: break-word; }
     .user-message .message-content { background-color: #007bff; color: white; border-bottom-right-radius: 4px; }
     .bot-message .message-content { background-color: #e5e5ea; color: black; border-bottom-left-radius: 4px; }
 
@@ -160,6 +166,22 @@
     .modal button { padding: 10px 20px; border-radius: 6px; border: none; cursor: pointer; font-weight: bold; }
     .btn-primary { background: #1a73e8; color: #fff; }
     .btn-secondary { background: #eee; color: #333; }
+
+    /* --- ENHANCEMENT: VERTICAL-ONLY CODE BLOCKS STYLING --- */
+    .code-block-container { background: #1e1e1e; border-radius: 8px; margin: 15px 0; width: 100%; border: 1px solid #333; overflow: hidden; }
+    .code-header { background: #2d2d2d; padding: 8px 12px; display: flex; justify-content: space-between; align-items: center; color: #aaa; font-size: 12px; }
+    .code-header .code-actions { display: flex; gap: 12px; }
+    .code-header .action-icon { cursor: pointer; display: flex; align-items: center; gap: 4px; color: #aaa; transition: color 0.2s; }
+    .code-header .action-icon:hover { color: #fff; }
+    code { display: block; font-family: 'monospace'; line-height: 1.5; padding: 15px; white-space: pre-wrap !important; word-break: break-word !important; overflow-x: hidden; }
+
+    /* --- ENHANCEMENT: PREVIEW MODAL STYLING --- */
+    #previewModal { display: none; position: fixed; inset: 0; z-index: 2000; background: #fff; flex-direction: column; }
+    .preview-header { background: #333; color: #fff; padding: 12px 15px; display: flex; justify-content: space-between; align-items: center; }
+    .preview-header h3 { margin: 0; font-size: 16px; font-weight: normal; }
+    .preview-close { background: none; border: none; color: white; cursor: pointer; display: flex; align-items: center; justify-content: center; padding: 0; transition: transform 0.2s; }
+    .preview-close:active { transform: scale(0.9); }
+    #previewIframe { flex: 1; width: 100%; border: none; background: #fff; }
 
     #imagePreview { display: none; } /* DEPRECATED - REPLACED BY THUMBNAIL CONTAINER */
   </style>
@@ -289,7 +311,74 @@
     </div>
   </div>
 
+  <!-- ENHANCEMENT: FULL-SCREEN PREVIEW MODAL -->
+  <div id="previewModal">
+      <div class="preview-header">
+          <h3>HTML Preview</h3>
+          <button class="preview-close" onclick="closePreview()"><span class="material-symbols-outlined">close</span></button>
+      </div>
+      <iframe id="previewIframe"></iframe>
+  </div>
+
   <script>
+    /* --- ENHANCEMENT: MARKED CONFIGURATION & CUSTOM RENDERER --- */
+    const renderer = new marked.Renderer();
+    renderer.code = function(code, language) {
+        const lang = language || 'plaintext';
+        // Safe encode to prevent breaking inline HTML onclick attributes
+        const safeCode = encodeURIComponent(code);
+
+        let previewBtn = '';
+        if (lang.toLowerCase() === 'html' || lang.toLowerCase() === 'xml') {
+            previewBtn = `<div class="action-icon" onclick="showPreview(decodeURIComponent('${safeCode}'))"><span class="material-symbols-outlined" style="font-size:16px;">visibility</span> Preview</div>`;
+        }
+
+        // Apply Highlight.js coloring robustly inside the renderer
+        let highlightedCode = code;
+        if (lang && lang !== 'plaintext' && hljs.getLanguage(lang)) {
+            try { highlightedCode = hljs.highlight(code, { language: lang }).value; } catch (e) {}
+        } else {
+            try { highlightedCode = hljs.highlightAuto(code).value; } catch (e) {}
+        }
+
+        return `
+        <div class="code-block-container">
+            <div class="code-header">
+                <span>${lang}</span>
+                <div class="code-actions">
+                    ${previewBtn}
+                    <div class="action-icon" onclick="copyCode(decodeURIComponent('${safeCode}'))"><span class="material-symbols-outlined" style="font-size:16px;">content_copy</span> Copy</div>
+                </div>
+            </div>
+            <pre><code class="hljs ${lang}">${highlightedCode}</code></pre>
+        </div>`;
+    };
+    marked.setOptions({ renderer: renderer });
+
+    /* --- ENHANCEMENT: GLOBAL ACTION FUNCTIONS --- */
+    window.copyCode = function(code) {
+        if (window.AndroidInterface && window.AndroidInterface.copyToClipboard) {
+            window.AndroidInterface.copyToClipboard(code);
+        } else {
+            navigator.clipboard.writeText(code);
+            alert("Copied to clipboard");
+        }
+    };
+
+    window.showPreview = function(code) {
+        const modal = document.getElementById('previewModal');
+        const iframe = document.getElementById('previewIframe');
+        iframe.srcdoc = code;
+        modal.style.display = 'flex';
+    };
+
+    window.closePreview = function() {
+        const modal = document.getElementById('previewModal');
+        const iframe = document.getElementById('previewIframe');
+        iframe.srcdoc = '';
+        modal.style.display = 'none';
+    };
+
     /* --- ENHANCEMENT: STAGED FILES STORAGE --- */
     let stagedFiles = []; 
     let customInstruction = localStorage.getItem('puter_custom_ins') || "";
@@ -626,7 +715,6 @@
       });
 
       // FIX: CRITICAL PAYLOAD STRUCTURE FOR SDK
-      // We MUST wrap the array in a proper message object so the SDK doesn't throw the 'content' error.
       let finalPayload;
       if (contentBlocks.length === 1 && contentBlocks[0].type === "text") {
           finalPayload = text; // Keep simple text simple
@@ -643,23 +731,68 @@
 
       try {
         console.log("Requesting AI Response for model: " + model);
-        const resp = await puter.ai.chat(finalPayload, {model: model, system_message: customInstruction});
+        
+        // --- ENHANCEMENT: LIVELY STREAMING GENERATION ---
+        const streamResp = await puter.ai.chat(finalPayload, {model: model, system_message: customInstruction, stream: true});
+        
+        let fullBotText = "";
+        const msgId = "msg-" + Date.now() + Math.random();
+        
+        const log = document.getElementById('puterChatLog');
+        const div = document.createElement('div');
+        div.className = "message bot-message";
+        div.id = msgId;
 
-        // FIX 2: Apply normalization to the response content (Claude Fix)
-        const botMsg = normalizeAIResponse(resp.message.content);
+        // Apply long press logic dynamically to the streaming bubble
+        let pressTimer;
+        div.onpointerdown = (e) => {
+            pressTimer = window.setTimeout(() => {
+                showContextMenu(e, fullBotText, msgId);
+            }, 700);
+        };
+        div.onpointerup = () => clearTimeout(pressTimer);
+        div.onpointercancel = () => clearTimeout(pressTimer);
+        div.oncontextmenu = (e) => e.preventDefault();
 
-        // HIDE ECG LOADER
-        loader.style.display = 'none';
+        // Inject the placeholder container for streaming text
+        div.innerHTML = `<div class="message-content"><b>Bot:</b><br><span id="stream-content-${msgId}"></span></div>`;
+        log.appendChild(div);
 
-        appendChat("Bot", botMsg);
+        const targetSpan = document.getElementById(`stream-content-${msgId}`);
 
-        /* --- REQUIREMENT #1: LIVELY NATIVE TTS RESPONSE --- */
-        // AI only talks if the request started from a microphone/voice trigger.
-        if(isVoiceResponseActive && window.AndroidInterface) {
-            window.AndroidInterface.speak(botMsg);
+        // Iterate over the stream response
+        for await (const chunk of streamResp) {
+            // Extract the stream chunk robustly depending on payload shape
+            const chunkText = chunk?.text || chunk?.message?.content || normalizeAIResponse(chunk) || "";
+            if (chunkText) {
+                fullBotText += chunkText;
+                
+                // Parse markdown live using our custom renderer with embedded Highlight.js
+                targetSpan.innerHTML = marked.parse(fullBotText);
+                
+                // Redundant safety check to ensure standard blocks without explicit languages are caught
+                document.querySelectorAll(`#stream-content-${msgId} pre code:not(.hljs)`).forEach((block) => {
+                    hljs.highlightElement(block);
+                });
+
+                // Auto-scroll track to bottom
+                window.scrollTo(0, document.body.scrollHeight);
+            }
         }
 
-        clearFiles(); // Reset staged files after success
+        // HIDE ECG LOADER only when stream has fully completed
+        loader.style.display = 'none';
+
+        // Persist the completed message to history
+        chatHistory.push({sender: "Bot", text: fullBotText, id: msgId, files: []});
+        localStorage.setItem('puter_chat_history_' + currentSessionId, JSON.stringify(chatHistory));
+
+        /* --- REQUIREMENT #1: LIVELY NATIVE TTS RESPONSE --- */
+        if(isVoiceResponseActive && window.AndroidInterface) {
+            window.AndroidInterface.speak(fullBotText);
+        }
+
+        clearFiles(); 
       } catch(e) { 
         loader.style.display = 'none';
         console.error("API Call Failed: " + e.message);
