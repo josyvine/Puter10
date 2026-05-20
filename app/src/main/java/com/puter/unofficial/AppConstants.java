@@ -23,6 +23,12 @@ public class AppConstants {
     // NEW: Key for toggling between local models.json and Puter Live API (Requirement #7)
     public static final String KEY_USE_LIVE_MODELS = "use_live_models";
 
+    // NEW: Key for tracking scraped files index
+    public static final String KEY_SCRAPED_PRODUCTS_INDEX = "puter_scraped_index";
+
+    // NEW: Key for managing bulk scraper queues
+    public static final String KEY_SCRAPER_QUEUE = "puter_scraper_queue";
+
     // --- PUTER URLs ---
     // The main entry point for Puter.com authentication via browser redirect.
     public static final String PUTER_LOGIN_URL = "https://puter.com/login";
@@ -31,6 +37,12 @@ public class AppConstants {
     // UPDATED: Now uses the virtual HTTPS origin required for Puter.js session persistence.
     public static final String LOCAL_INDEX_URL = "https://appassets.androidplatform.net/assets/index.html";
     
+    // NEW: Local asset path for the manual browser frontend.
+    public static final String LOCAL_BROWSER_URL = "https://appassets.androidplatform.net/assets/browser.html";
+
+    // NEW: Local asset path for the scraper dashboard frontend.
+    public static final String LOCAL_SCRAPER_URL = "https://appassets.androidplatform.net/assets/scraper.html";
+
     // Markers for detecting successful SDK authentication redirects
     public static final String AUTH_SUCCESS_MARKER = "signed_in=true";
     public static final String AUTH_TOKEN_PARAM = "token=";
