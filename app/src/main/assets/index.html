@@ -840,9 +840,8 @@
       input.value = "";
       handleInput(); 
 
-      // --- ENHANCEMENT: IMAGE MODEL LOGIC (POINTS 1, 5, 6) ---
+      // --- ENHANCEMENT: IMAGE MODEL LOGIC ---
       const isImageModel = globalModelObject?.categories?.includes("image_generation");
-      const streamMode = !isImageModel;
 
       if(isImageModel) {
           const ratio = document.getElementById("aspectRatioSelect").value;
@@ -886,7 +885,7 @@
       try {
         console.log("Requesting AI Response for model: " + model);
         
-        // --- BRANCHED LOGIC: IMAGE VS TEXT (POINTS 7, 10) ---
+        // --- BRANCHED LOGIC: IMAGE VS TEXT ---
         if(isImageModel) {
             const aspectRatio = document.getElementById("aspectRatioSelect").value;
             const response = await puter.ai.chat(finalPayload, {
@@ -897,27 +896,21 @@
             });
 
             loader.style.display = 'none';
-            console.log("Image response RAW:", response);
+            console.log("Image generation completed.");
 
-            // POINT 7: Parse image formats
+            // IMPROVED EXTRACTION FOR ALL MODELS (INCLUDING JAMBA 1.7)
             let imgSrc = null;
             if(response.image_url) imgSrc = response.image_url;
             else if(response.images && response.images[0]) imgSrc = response.images[0].url || response.images[0];
+            else if(response.message?.images?.[0]?.image_url?.url) imgSrc = response.message.images[0].image_url.url;
             else if(response.b64_json) imgSrc = "data:image/png;base64," + response.b64_json;
             else if(Array.isArray(response.message?.content)) {
                 const imgBlock = response.message.content.find(c => c.type === "image_url");
                 if(imgBlock) imgSrc = imgBlock.image_url.url;
             }
 
-            if(imgSrc) {
-                renderImage(imgSrc);
-            } else {
-                // --- DEBUG UPGRADE: SHOW RAW PAYLOAD ON FAILURE ---
-                const debugInfo = "### Debug: Image Extraction Failed\n" +
-                                "The AI did not return a recognized image key. Inspect the raw payload below to troubleshoot:\n\n" +
-                                "```json\n" + JSON.stringify(response, null, 2) + "\n```";
-                appendChat("Bot", debugInfo);
-            }
+            if(imgSrc) renderImage(imgSrc);
+            else appendChat("Bot", "Error: Recognized image data not found in response.");
 
         } else {
             // --- ENHANCEMENT: LIVELY STREAMING GENERATION ---
@@ -965,10 +958,7 @@
       } catch(e) { 
         loader.style.display = 'none';
         console.error("API Call Failed: " + e.message);
-        // --- DEBUG UPGRADE: SHOW ERROR JSON ---
-        const errorDebug = "### API ERROR DIAGNOSTIC\n" +
-                           "```json\n" + JSON.stringify(e, Object.getOwnPropertyNames(e), 2) + "\n```";
-        appendChat("System", errorDebug); 
+        appendChat("System", "Error: " + e.message); 
       }
     }
 
