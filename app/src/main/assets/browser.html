@@ -173,7 +173,7 @@
       line-height: 1.5;
     }
 
-    /* DYNAMIC FLOATING ACTION BUTTON */
+    /* DYNAMIC FLOATING ACTION BUTTON WITH STATE COLORS */
     .scrape-fab {
       position: fixed;
       bottom: 24px;
@@ -190,17 +190,32 @@
       justify-content: center;
       cursor: pointer;
       z-index: 999;
-      transition: transform 0.2s, background-color 0.2s;
+      transition: transform 0.2s, background-color 0.4s ease-in-out, box-shadow 0.4s ease-in-out;
     }
 
     .scrape-fab:active {
       transform: scale(0.9);
-      background-color: #1557b0;
     }
 
     .scrape-fab span {
       font-size: 26px;
       font-variation-settings: 'FILL' 1;
+    }
+
+    /* Dynamic FAB Color Overrides based on execution cycle */
+    .scrape-fab.state-scraping {
+      background-color: #d93025 !important; /* RED - Scraping initiated */
+      box-shadow: 0 4px 10px rgba(217,48,37,0.4) !important;
+    }
+
+    .scrape-fab.state-processing {
+      background-color: #f2994a !important; /* ORANGE - Intermediate processing */
+      box-shadow: 0 4px 10px rgba(242,153,74,0.4) !important;
+    }
+
+    .scrape-fab.state-finished {
+      background-color: #27ae60 !important; /* GREEN - Scrape completed and sent */
+      box-shadow: 0 4px 10px rgba(39,174,96,0.4) !important;
     }
   </style>
 </head>
@@ -255,6 +270,7 @@
 
   <script>
     let currentActiveUrl = "";
+    let scrapeTimeout = null;
 
     function onViewportLoad() {
         try {
@@ -338,6 +354,7 @@
      * Performs domain detection:
      * - If Amazon: Redirects the viewport frame to scraper.html command dashboard.
      * - If Universal: Executes silent background scrape and saves payload.
+     * ENHANCED: Includes dynamic color state changes for Universal Mode scraping cycles.
      */
     function triggerWebScrape() {
         const activeUrl = currentActiveUrl || document.getElementById('addressInput').value.trim();
@@ -360,16 +377,25 @@
             }
         } else {
             // Universal Mode: Inject scraper and trigger silent background parse
+            const fab = document.querySelector('.scrape-fab');
+            
+            // 1. Instantly transition to Scraping state (RED)
+            fab.className = 'scrape-fab state-scraping';
+
+            // 2. Set timeout to transition to intermediate Processing state (ORANGE) after 1.2 seconds
+            if (scrapeTimeout) clearTimeout(scrapeTimeout);
+            scrapeTimeout = setTimeout(() => {
+                fab.className = 'scrape-fab state-processing';
+            }, 1200);
+
             const iframe = document.getElementById('browserViewport');
             try {
                 // If same origin, execute script directly
                 iframe.contentWindow.postMessage({ action: "scrape_universal" }, "*");
-                alert("universal_scraper.js injected. Gathers clean article paragraphs silently.");
             } catch (e) {
                 // For cross-origin pages, WebViewClient automatically injects universal_scraper.js onPageFinished.
                 // We send a programmatic postMessage to trigger the save.
                 iframe.contentWindow.postMessage("scrape", "*");
-                alert("Scraped payload sent directly to Puter Unofficial under Web Scrap.");
             }
         }
     }
@@ -380,7 +406,26 @@
             const payload = event.data.payload;
             if (window.AndroidInterface && window.AndroidInterface.addScrapedProduct) {
                 window.AndroidInterface.addScrapedProduct(payload.scraped_id, JSON.stringify(payload));
-                alert("Successfully saved page: " + payload.metadata.title);
+                
+                // Clear active progress timers
+                if (scrapeTimeout) clearTimeout(scrapeTimeout);
+
+                const fab = document.querySelector('.scrape-fab');
+                
+                // 3. Transition to Finished state (GREEN) on success callback
+                fab.className = 'scrape-fab state-finished';
+
+                // 4. Trigger native Android Toast message
+                if (window.AndroidInterface.showToast) {
+                    window.AndroidInterface.showToast("JSON sent successfully to Puter Unofficial");
+                } else {
+                    alert("Successfully saved page: " + payload.metadata.title);
+                }
+
+                // 5. Smoothly revert back to original Blue state after 4 seconds
+                setTimeout(() => {
+                    fab.className = 'scrape-fab';
+                }, 4000);
             }
         }
     });
