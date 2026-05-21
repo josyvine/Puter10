@@ -29,6 +29,12 @@ public class AppConstants {
     // NEW: Key for managing bulk scraper queues
     public static final String KEY_SCRAPER_QUEUE = "puter_scraper_queue";
 
+    // --- NOSTR IDENTITY & RELAY PREFERENCES ---
+    public static final String KEY_NOSTR_PRIVATE_KEY = "nostr_private_key_hex";
+    public static final String KEY_NOSTR_PUBLIC_KEY = "nostr_public_key_hex";
+    public static final String KEY_NOSTR_RELAY_URL = "puter_nostr_relay_url";
+    public static final String KEY_EXTENSION_PUBLIC_ID = "puter_extension_public_id";
+
     // --- PUTER URLs ---
     // The main entry point for Puter.com authentication via browser redirect.
     public static final String PUTER_LOGIN_URL = "https://puter.com/login";
@@ -39,9 +45,6 @@ public class AppConstants {
     
     // NEW: Local asset path for the manual browser frontend.
     public static final String LOCAL_BROWSER_URL = "https://appassets.androidplatform.net/assets/browser.html";
-
-    // NEW: Local asset path for the scraper dashboard frontend.
-    public static final String LOCAL_SCRAPER_URL = "https://appassets.androidplatform.net/assets/scraper.html";
 
     // Markers for detecting successful SDK authentication redirects
     public static final String AUTH_SUCCESS_MARKER = "signed_in=true";
