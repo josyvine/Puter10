@@ -63,6 +63,28 @@
       background-color: #b52218;
     }
 
+    /* Standard scraper action button matching the native app styles */
+    .scraper-btn {
+      color: #f4f4f4;
+      background-color: #1a73e8;
+      border-radius: 18px;
+      padding: 0 15px;
+      height: 38px;
+      font-weight: bold;
+      font-size: 13px;
+      border: none;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      transition: background-color 0.2s;
+    }
+
+    .scraper-btn:active {
+      background-color: #1557b0;
+    }
+
     .header-title {
       font-size: 15px;
       font-weight: bold;
@@ -142,7 +164,9 @@
       <span class="material-symbols-outlined" style="font-size: 18px;">chat</span> Exit to Chat
     </button>
     <div class="header-title">Web Browser Portal</div>
-    <div style="width: 80dp;"></div> <!-- Spacer element -->
+    <button class="scraper-btn" onclick="goToScraper()">
+      <span class="material-symbols-outlined" style="font-size: 18px;">table_rows</span> Scraper Dashboard
+    </button>
   </header>
 
   <!-- Central Landing Area -->
@@ -221,6 +245,14 @@
             window.AndroidInterface.loadLocalUrl('index.html');
         } else {
             window.location.href = 'index.html';
+        }
+    }
+
+    function goToScraper() {
+        if (window.AndroidInterface && window.AndroidInterface.loadLocalUrl) {
+            window.AndroidInterface.loadLocalUrl('scraper.html');
+        } else {
+            window.location.href = 'scraper.html';
         }
     }
   </script>
