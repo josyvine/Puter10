@@ -209,4 +209,4 @@
 
     // Auto-executes safety diagnostics on load
     console.log("universal_scraper.js initialized and listening on secure virtual frame.");
-})();
+})(); 
