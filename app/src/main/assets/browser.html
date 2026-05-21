@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>Manual Web Browser</title>
+  <title>Web Exploration Start Portal</title>
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" />
   <style>
     * {
@@ -21,13 +21,19 @@
       height: 100vh;
       width: 100vw;
       overflow: hidden;
+      align-items: center;
+      justify-content: center;
     }
 
-    /* sleeker navigation bar in dark layout to contrast with live webpages */
+    /* Slick top header bar matching Puter Unofficial theme */
     header {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
       background: #333;
       color: #fff;
-      padding: 8px 12px;
+      padding: 8px 15px;
       display: flex;
       align-items: center;
       justify-content: space-between;
@@ -36,79 +42,12 @@
       box-shadow: 0 2px 5px rgba(0,0,0,0.2);
     }
 
-    .nav-controls-left {
-      display: flex;
-      align-items: center;
-      flex: 1;
-      gap: 6px;
-    }
-
-    .address-bar-wrapper {
-      display: flex;
-      align-items: center;
-      flex: 1;
-      background: #fff;
-      border-radius: 20px;
-      padding: 4px 12px;
-      height: 38px;
-      max-width: 600px;
-    }
-
-    .address-bar-wrapper input {
-      flex: 1;
-      border: none;
-      outline: none;
-      font-size: 14px;
-      color: #333;
-      background: transparent;
-    }
-
-    .go-btn {
-      background: none;
-      border: none;
-      color: #1a73e8;
-      cursor: pointer;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      padding: 4px;
-    }
-
-    .nav-controls-right {
-      display: flex;
-      align-items: center;
-      gap: 4px;
-      margin-left: 10px;
-    }
-
-    .action-icon-btn {
-      background: none;
-      border: none;
-      color: #fff;
-      cursor: pointer;
-      width: 36px;
-      height: 36px;
-      border-radius: 50%;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      transition: background-color 0.2s;
-    }
-
-    .action-icon-btn:active {
-      background-color: rgba(255, 255, 255, 0.15);
-    }
-
-    .action-icon-btn span {
-      font-size: 22px;
-    }
-
     .exit-btn {
       color: #f4f4f4;
       background-color: #d93025;
       border-radius: 18px;
-      padding: 0 12px;
-      height: 36px;
+      padding: 0 15px;
+      height: 38px;
       font-weight: bold;
       font-size: 13px;
       border: none;
@@ -116,7 +55,7 @@
       display: flex;
       align-items: center;
       justify-content: center;
-      gap: 4px;
+      gap: 6px;
       transition: background-color 0.2s;
     }
 
@@ -124,156 +63,104 @@
       background-color: #b52218;
     }
 
-    /* Core Viewport Container */
-    .viewport-container {
-      flex: 1;
-      width: 100%;
-      position: relative;
-      background: #fff;
+    .header-title {
+      font-size: 15px;
+      font-weight: bold;
+      color: #fff;
     }
 
-    #browserViewport {
-      width: 100%;
-      height: 100%;
-      border: none;
-      display: block;
-    }
-
-    /* Placeholder Screen shown before browsing */
-    .browser-placeholder {
-      position: absolute;
-      inset: 0;
-      background: #fff;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-      padding: 20px;
+    /* Centralized Search and Exploration Container */
+    .portal-container {
+      width: 90%;
+      max-width: 500px;
       text-align: center;
-      z-index: 10;
+      padding: 20px;
+      margin-top: 60px;
     }
 
-    .placeholder-logo {
-      font-size: 64px;
+    .portal-logo {
+      font-size: 80px;
       color: #1a73e8;
-      margin-bottom: 12px;
+      margin-bottom: 15px;
     }
 
-    .placeholder-title {
-      font-size: 18px;
+    .portal-title {
+      font-size: 22px;
       color: #333;
       margin-bottom: 8px;
       font-weight: bold;
     }
 
-    .placeholder-desc {
-      font-size: 13px;
+    .portal-desc {
+      font-size: 14px;
       color: #666;
-      max-width: 280px;
       line-height: 1.5;
+      margin-bottom: 25px;
     }
 
-    /* DYNAMIC FLOATING ACTION BUTTON WITH STATE COLORS */
-    .scrape-fab {
-      position: fixed;
-      bottom: 24px;
-      right: 24px;
-      width: 56px;
-      height: 56px;
+    .search-wrapper {
+      display: flex;
+      align-items: center;
+      background: #fff;
       border-radius: 28px;
-      background-color: #1a73e8;
-      color: #fff;
+      padding: 4px 16px;
+      height: 52px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+      border: 1px solid #ddd;
+    }
+
+    .search-wrapper input {
+      flex: 1;
       border: none;
-      box-shadow: 0 4px 10px rgba(26,115,232,0.4);
+      outline: none;
+      font-size: 16px;
+      color: #333;
+      background: transparent;
+    }
+
+    .search-btn {
+      background: none;
+      border: none;
+      color: #1a73e8;
+      cursor: pointer;
       display: flex;
       align-items: center;
       justify-content: center;
-      cursor: pointer;
-      z-index: 999;
-      transition: transform 0.2s, background-color 0.4s ease-in-out, box-shadow 0.4s ease-in-out;
+      padding: 8px;
     }
 
-    .scrape-fab:active {
-      transform: scale(0.9);
-    }
-
-    .scrape-fab span {
-      font-size: 26px;
-      font-variation-settings: 'FILL' 1;
-    }
-
-    /* Dynamic FAB Color Overrides based on execution cycle */
-    .scrape-fab.state-scraping {
-      background-color: #d93025 !important; /* RED - Scraping initiated */
-      box-shadow: 0 4px 10px rgba(217,48,37,0.4) !important;
-    }
-
-    .scrape-fab.state-processing {
-      background-color: #f2994a !important; /* ORANGE - Intermediate processing */
-      box-shadow: 0 4px 10px rgba(242,153,74,0.4) !important;
-    }
-
-    .scrape-fab.state-finished {
-      background-color: #27ae60 !important; /* GREEN - Scrape completed and sent */
-      box-shadow: 0 4px 10px rgba(39,174,96,0.4) !important;
+    .search-btn span {
+      font-size: 28px;
     }
   </style>
 </head>
 <body>
 
+  <!-- Local Start Header -->
   <header>
-    <div class="nav-controls-left">
-      <!-- EXIT TO CHAT BUTTON -->
-      <button class="exit-btn" onclick="exitBrowser()">
-        <span class="material-symbols-outlined" style="font-size: 18px;">chat</span> Exit
-      </button>
-
-      <!-- ADDRESS BAR INPUT -->
-      <div class="address-bar-wrapper">
-        <input type="text" id="addressInput" placeholder="Enter web address or search..." onkeydown="handleAddressKey(event)">
-        <button class="go-btn" onclick="navigateAddress()">
-          <span class="material-symbols-outlined">arrow_forward</span>
-        </button>
-      </div>
-    </div>
-
-    <!-- PHYSICAL NAVIGATION CONTROLS -->
-    <div class="nav-controls-right">
-      <button class="action-icon-btn" onclick="goBack()" title="Back">
-        <span class="material-symbols-outlined">arrow_back_ios</span>
-      </button>
-      <button class="action-icon-btn" onclick="goForward()" title="Forward">
-        <span class="material-symbols-outlined">arrow_forward_ios</span>
-      </button>
-      <button class="action-icon-btn" onclick="reloadPage()" title="Reload">
-        <span class="material-symbols-outlined">refresh</span>
-      </button>
-    </div>
+    <button class="exit-btn" onclick="exitBrowser()">
+      <span class="material-symbols-outlined" style="font-size: 18px;">chat</span> Exit to Chat
+    </button>
+    <div class="header-title">Web Browser Portal</div>
+    <div style="width: 80dp;"></div> <!-- Spacer element -->
   </header>
 
-  <div class="viewport-container">
-    <!-- Viewport rendering iframe -->
-    <!-- CORE FIX: Inline onload hook removed to prevent parsing-order ReferenceError loops -->
-    <iframe id="browserViewport" name="browserViewport" src="about:blank"></iframe>
+  <!-- Central Landing Area -->
+  <div class="portal-container">
+    <span class="material-symbols-outlined portal-logo">travel_explore</span>
+    <div class="portal-title">Explore Web Content</div>
+    <div class="portal-desc">Enter an address or type a query to browse, summarize, and catalog target web documents.</div>
 
-    <!-- Initial Landing Placeholder -->
-    <div class="browser-placeholder" id="browserPlaceholder">
-      <span class="material-symbols-outlined placeholder-logo">travel_explore</span>
-      <div class="placeholder-title">Web Exploration Viewport</div>
-      <div class="placeholder-desc">Enter an address in the search bar above to manually browse, extract, and catalog web pages.</div>
+    <!-- Central Search Input Box -->
+    <div class="search-wrapper">
+      <input type="text" id="portalAddressInput" placeholder="Enter web address or search query..." onkeydown="handlePortalKey(event)">
+      <button class="search-btn" onclick="navigatePortalAddress()">
+        <span class="material-symbols-outlined">arrow_forward</span>
+      </button>
     </div>
   </div>
 
-  <!-- FLOATING ACTION BUTTON OVERLAY -->
-  <button class="scrape-fab" onclick="triggerWebScrape()" title="Scrape Web">
-    <span class="material-symbols-outlined">target</span>
-  </button>
-
   <script>
-    let currentActiveUrl = "";
-    let scrapeTimeout = null;
-    let scrapeWatchdog = null; // NEW: Diagnostic watchdog timer
-
     // --- TOTAL SURVEILLANCE: GLOBAL EXCEPTION INTERCEPTORS ---
     window.onerror = function(message, source, lineno, colno, error) {
         if (window.AndroidInterface && window.AndroidInterface.logHtmlGlitch) {
@@ -291,72 +178,41 @@
         }
     };
 
-    function onViewportLoad() {
-        try {
-            const iframe = document.getElementById('browserViewport');
-            if (iframe.contentWindow && iframe.contentWindow.location.href !== "about:blank") {
-                currentActiveUrl = iframe.contentWindow.location.href;
-                document.getElementById('addressInput').value = currentActiveUrl;
-                document.getElementById('browserPlaceholder').style.display = 'none';
+    /**
+     * Resolves the user input and performs top-level redirection on the WebView context.
+     * Treats valid-looking strings as URLs, and other inputs as Google Search queries.
+     */
+    function navigatePortalAddress() {
+        const input = document.getElementById('portalAddressInput');
+        let query = input.value.trim();
+        if (!query) return;
+
+        let targetUrl = query;
+
+        // Check if the query is a search term or a specific URL
+        const isUrlPattern = /^(https?:\/\/)?([\da-z\.-]+)\.([a-z\.]{2,6})([\/\w \.-]*)*\/?$/i;
+
+        if (isUrlPattern.test(query)) {
+            // If it behaves like a URL, ensure valid protocol prefix is attached
+            if (!query.startsWith("http://") && !query.startsWith("https://")) {
+                targetUrl = "https://" + query;
             }
-        } catch (e) {
-            // Origin security prevents direct iframe URL extraction, we rely on address input
-            console.log("Cross-origin protection active. Tracking navigation via address inputs.");
-        }
-    }
-
-    function navigateAddress() {
-        const input = document.getElementById('addressInput');
-        let url = input.value.trim();
-        if (!url) return;
-
-        // Auto-fix missing protocol wrappers
-        if (!url.startsWith("http://") && !url.startsWith("https://")) {
-            url = "https://" + url;
+        } else {
+            // If it is a raw search query, route through Google Search natively
+            targetUrl = "https://www.google.com/search?q=" + encodeURIComponent(query);
         }
 
-        currentActiveUrl = url;
-        input.value = url;
-        document.getElementById('browserPlaceholder').style.display = 'none';
-        
-        // Load target webpage inside iframe container
-        document.getElementById('browserViewport').src = url;
+        if (window.AndroidInterface && window.AndroidInterface.nativeLog) {
+            window.AndroidInterface.nativeLog("Portal Redirecting Main Frame -> " + targetUrl, "native");
+        }
+
+        // Redirect the primary top-level WebView context to bypass iframe limitations
+        window.location.href = targetUrl;
     }
 
-    function handleAddressKey(event) {
+    function handlePortalKey(event) {
         if (event.key === "Enter") {
-            navigateAddress();
-        }
-    }
-
-    function goBack() {
-        try {
-            const iframe = document.getElementById('browserViewport');
-            iframe.contentWindow.history.back();
-        } catch (e) {
-            // Native fallback if frame sandbox blocks history
-            if (window.AndroidInterface && window.AndroidInterface.nativeLog) {
-                window.AndroidInterface.nativeLog("Iframe Back navigation blocked. Relying on physical back button.", "warn");
-            }
-        }
-    }
-
-    function goForward() {
-        try {
-            const iframe = document.getElementById('browserViewport');
-            iframe.contentWindow.history.forward();
-        } catch (e) {
-            console.log("Iframe Forward navigation restricted.");
-        }
-    }
-
-    function reloadPage() {
-        try {
-            const iframe = document.getElementById('browserViewport');
-            iframe.contentWindow.location.reload();
-        } catch (e) {
-            // Reload trigger
-            document.getElementById('browserViewport').src = currentActiveUrl;
+            navigatePortalAddress();
         }
     }
 
@@ -367,130 +223,6 @@
             window.location.href = 'index.html';
         }
     }
-
-    /**
-     * DYNAMIC FLOATING ACTION OVERLAY ROUTING ENGINE
-     * Performs domain detection:
-     * - If Amazon: Redirects the viewport frame to scraper.html command dashboard.
-     * - If Universal: Executes silent background scrape and saves payload.
-     * ENHANCEMENT: Includes dynamic color state changes for Universal Mode scraping cycles.
-     * SURVEILLANCE: Implements an 8-second diagnostic watchdog to intercept infinite orange hangs.
-     */
-    function triggerWebScrape() {
-        const activeUrl = currentActiveUrl || document.getElementById('addressInput').value.trim();
-        
-        if (!activeUrl || activeUrl.startsWith("about:blank")) {
-            alert("Navigate to a webpage first before scraping.");
-            return;
-        }
-
-        if (window.AndroidInterface && window.AndroidInterface.nativeLog) {
-            window.AndroidInterface.nativeLog("Routing active domain target: " + activeUrl, "native");
-        }
-
-        if (activeUrl.includes("amazon.in") || activeUrl.includes("amazon.com")) {
-            // E-Commerce Route: Navigates viewport to scraper.html command panel
-            if (window.AndroidInterface && window.AndroidInterface.loadLocalUrl) {
-                window.AndroidInterface.loadLocalUrl('scraper.html');
-            } else {
-                window.location.href = 'scraper.html';
-            }
-        } else {
-            // Universal Mode: Inject scraper and trigger silent background parse
-            const fab = document.querySelector('.scrape-fab');
-            
-            // 1. Instantly transition to Scraping state (RED)
-            fab.className = 'scrape-fab state-scraping';
-
-            // 2. Set timeout to transition to intermediate Processing state (ORANGE) after 1.2 seconds
-            if (scrapeTimeout) clearTimeout(scrapeTimeout);
-            scrapeTimeout = setTimeout(() => {
-                fab.className = 'scrape-fab state-processing';
-            }, 1200);
-
-            // 3. START DIAGNOSTIC WATCHDOG TIMER (8-seconds limit)
-            if (scrapeWatchdog) clearTimeout(scrapeWatchdog);
-            scrapeWatchdog = setTimeout(() => {
-                // Clear any pending transition timers
-                if (scrapeTimeout) clearTimeout(scrapeTimeout);
-
-                if (window.AndroidInterface && window.AndroidInterface.reportGlitchedLogic) {
-                    window.AndroidInterface.reportGlitchedLogic(
-                        "SCRAPE_TIMEOUT", 
-                        "Universal content script failed to respond within 8 seconds. Viewport URL: " + activeUrl
-                    );
-                }
-                
-                // Force-transition back to RED (Error State) to visually denote failure
-                fab.className = 'scrape-fab state-scraping';
-                
-                if (window.AndroidInterface && window.AndroidInterface.showToast) {
-                    window.AndroidInterface.showToast("Scraping failed: Iframe or Script Timeout.");
-                } else {
-                    alert("Scraping failed: Iframe or Script Timeout.");
-                }
-
-                // Revert to Blue after 4 seconds
-                setTimeout(() => {
-                    fab.className = 'scrape-fab';
-                }, 4000);
-
-            }, 8000);
-
-            const iframe = document.getElementById('browserViewport');
-            
-            // Same-origin check to prevent postMessage mismatches on cross-origin boundaries
-            let sameOrigin = false;
-            try {
-                if (iframe.contentDocument || iframe.contentWindow.document) {
-                    sameOrigin = true;
-                }
-            } catch (originError) {
-                sameOrigin = false;
-            }
-
-            if (sameOrigin) {
-                iframe.contentWindow.postMessage({ action: "scrape_universal" }, "*");
-            } else {
-                // Cross-origin fallback sends the standard 'scrape' string command directly
-                iframe.contentWindow.postMessage("scrape", "*");
-            }
-        }
-    }
-
-    // Capture postMessages from universal_scraper content script inside the frame
-    window.addEventListener("message", function(event) {
-        if (event.data && event.data.type === "scraped_data_callback") {
-            const payload = event.data.payload;
-            if (window.AndroidInterface && window.AndroidInterface.addScrapedProduct) {
-                window.AndroidInterface.addScrapedProduct(payload.scraped_id, JSON.stringify(payload));
-                
-                // Clear active progress and watchdog timers immediately
-                if (scrapeTimeout) clearTimeout(scrapeTimeout);
-                if (scrapeWatchdog) clearTimeout(scrapeWatchdog);
-
-                const fab = document.querySelector('.scrape-fab');
-                
-                // 3. Transition to Finished state (GREEN) on success callback
-                fab.className = 'scrape-fab state-finished';
-
-                // 4. Trigger native Android Toast message
-                if (window.AndroidInterface.showToast) {
-                    window.AndroidInterface.showToast("JSON sent successfully to Puter Unofficial");
-                } else {
-                    alert("Successfully saved page: " + payload.metadata.title);
-                }
-
-                // 5. Smoothly revert back to original Blue state after 4 seconds
-                setTimeout(() => {
-                    fab.className = 'scrape-fab';
-                }, 4000);
-            }
-        }
-    });
-
-    // CORE FIX: Bind the iframe onload event listener dynamically to bypass DOM parsing race conditions
-    document.getElementById('browserViewport').addEventListener('load', onViewportLoad);
   </script>
 </body>
 </html>
