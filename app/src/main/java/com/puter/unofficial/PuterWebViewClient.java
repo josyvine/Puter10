@@ -62,6 +62,45 @@ public class PuterWebViewClient extends WebViewClient {
         Uri uri = request.getUrl();
         if (uri != null) {
             String urlStr = uri.toString();
+
+            // SUBRESOURCE SHIELD: Immediately ignore static subresources to prevent corruption of compressed binary formats (gzip/brotli)
+            String path = uri.getPath();
+            if (path != null) {
+                String lowercasePath = path.toLowerCase();
+                if (lowercasePath.endsWith(".js") || lowercasePath.endsWith(".css") || 
+                    lowercasePath.endsWith(".png") || lowercasePath.endsWith(".jpg") || 
+                    lowercasePath.endsWith(".jpeg") || lowercasePath.endsWith(".gif") || 
+                    lowercasePath.endsWith(".woff") || lowercasePath.endsWith(".woff2") || 
+                    lowercasePath.endsWith(".ttf") || lowercasePath.endsWith(".svg") || 
+                    lowercasePath.endsWith(".json") || lowercasePath.endsWith(".ico") || 
+                    lowercasePath.endsWith(".webp") || lowercasePath.endsWith(".mp4")) {
+                    return null; // Let the WebView load non-HTML resources natively
+                }
+            }
+
+            // Exclude API requests or non-HTML document queries by evaluating Accept headers
+            java.util.Map<String, String> reqHeaders = request.getRequestHeaders();
+            boolean expectsHtml = false;
+            if (reqHeaders != null) {
+                for (java.util.Map.Entry<String, String> entry : reqHeaders.entrySet()) {
+                    if (entry.getKey().equalsIgnoreCase("accept")) {
+                        String value = entry.getValue();
+                        if (value != null && value.toLowerCase().contains("text/html")) {
+                            expectsHtml = true;
+                        }
+                        break;
+                    }
+                }
+            }
+
+            // If the WebView is not explicitly seeking an HTML document, bypass interception
+            if (!expectsHtml && reqHeaders != null) {
+                if (reqHeaders.containsKey("X-Requested-With") || reqHeaders.containsKey("x-requested-with") ||
+                    reqHeaders.containsKey("Sec-Fetch-Dest") || "xmlhttprequest".equalsIgnoreCase(reqHeaders.get("X-Requested-With"))) {
+                    return null;
+                }
+            }
+
             if ((urlStr.startsWith("http://") || urlStr.startsWith("https://")) 
                     && !urlStr.startsWith("https://appassets.androidplatform.net/")
                     && "GET".equalsIgnoreCase(request.getMethod())) {
@@ -75,6 +114,12 @@ public class PuterWebViewClient extends WebViewClient {
                         for (java.util.Map.Entry<String, String> entry : request.getRequestHeaders().entrySet()) {
                             conn.setRequestProperty(entry.getKey(), entry.getValue());
                         }
+                    }
+
+                    // COOKIE SYNCHRONIZATION: Forward active web cookies to maintain paywall/subscription authentication states
+                    String cookieVal = CookieManager.getInstance().getCookie(urlStr);
+                    if (cookieVal != null && !cookieVal.isEmpty()) {
+                        conn.setRequestProperty("Cookie", cookieVal);
                     }
 
                     // Standard timeouts
@@ -104,6 +149,12 @@ public class PuterWebViewClient extends WebViewClient {
                     }
                     if (encoding == null || encoding.isEmpty()) {
                         encoding = "UTF-8";
+                    }
+
+                    // MIME TYPE FILTER: If the server response contentType is not HTML, bypass proxying to prevent corruption
+                    if (!mimeType.toLowerCase().contains("text/html")) {
+                        conn.disconnect();
+                        return null; 
                     }
 
                     // Copy response headers and aggressively strip out framing restrictors
