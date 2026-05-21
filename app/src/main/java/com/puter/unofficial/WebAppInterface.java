@@ -367,6 +367,42 @@ public class WebAppInterface {
         }
     }
 
+    /**
+     * NEW: Handshake cryptographic porting interface.
+     * Packages the native generated keypairs (private and public keys) as a JSON string
+     * to enable automatic Web-to-Extension authentication on load.
+     */
+    @JavascriptInterface
+    public String getNativeIdentity() {
+        nativeLog("Bridge: Fetching local cryptographic identity", "native");
+        org.json.JSONObject obj = new org.json.JSONObject();
+        try {
+            obj.put("private_key", prefs.getString(AppConstants.KEY_NOSTR_PRIVATE_KEY, ""));
+            obj.put("public_key", prefs.getString(AppConstants.KEY_NOSTR_PUBLIC_KEY, ""));
+        } catch (Exception e) {
+            Log.e("WebAppInterface", "Error packaging native identity", e);
+        }
+        return obj.toString();
+    }
+
+    /**
+     * NEW: Settings transport interface.
+     * Delivers the saved public extension/sender filter key and active connection
+     * relay URL to the Frontend receiver environments.
+     */
+    @JavascriptInterface
+    public String getNostrSettings() {
+        nativeLog("Bridge: Fetching local Nostr settings", "native");
+        org.json.JSONObject obj = new org.json.JSONObject();
+        try {
+            obj.put("public_key", prefs.getString(AppConstants.KEY_EXTENSION_PUBLIC_ID, ""));
+            obj.put("relay_url", prefs.getString(AppConstants.KEY_NOSTR_RELAY_URL, ""));
+        } catch (Exception e) {
+            Log.e("WebAppInterface", "Error packaging Nostr settings", e);
+        }
+        return obj.toString();
+    }
+
     // --- NEW WEB SCRAPER ENGINE INTERFACES ---
 
     /**
@@ -438,40 +474,8 @@ public class WebAppInterface {
     }
 
     /**
-     * Stores the compiled browser crawling queue natively to persist states.
-     */
-    @JavascriptInterface
-    public void addQueueLinks(String linksJson) {
-        prefs.edit().putString(AppConstants.KEY_SCRAPER_QUEUE, linksJson).apply();
-        nativeLog("Queue links updated in SharedPreferences.", "native");
-    }
-
-    /**
-     * Pops (removes) the first element (index 0) from the queue list and returns it.
-     */
-    @JavascriptInterface
-    public String popQueueLink() {
-        String queueStr = prefs.getString(AppConstants.KEY_SCRAPER_QUEUE, "[]");
-        try {
-            org.json.JSONArray array = new org.json.JSONArray(queueStr);
-            if (array.length() > 0) {
-                String nextUrl = array.getString(0);
-                org.json.JSONArray newArray = new org.json.JSONArray();
-                for (int i = 1; i < array.length(); i++) {
-                    newArray.put(array.get(i));
-                }
-                prefs.edit().putString(AppConstants.KEY_SCRAPER_QUEUE, newArray.toString()).apply();
-                nativeLog("Popped next URL from queue: " + nextUrl, "native");
-                return nextUrl;
-            }
-        } catch (Exception e) {
-            Log.e("WebAppInterface", "Error popping link from queue", e);
-        }
-        return "";
-    }
-
-    /**
      * Directs the active WebView viewport to load specific local files securely.
+     * Legacy scraper panel routing removed in favor of browser.html.
      */
     @JavascriptInterface
     public void loadLocalUrl(String pageName) {
@@ -479,8 +483,6 @@ public class WebAppInterface {
         final String targetUrl;
         if ("browser.html".equals(pageName)) {
             targetUrl = AppConstants.LOCAL_BROWSER_URL;
-        } else if ("scraper.html".equals(pageName)) {
-            targetUrl = AppConstants.LOCAL_SCRAPER_URL;
         } else {
             targetUrl = AppConstants.LOCAL_INDEX_URL;
         }
