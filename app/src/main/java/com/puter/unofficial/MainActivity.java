@@ -92,6 +92,23 @@ public class MainActivity extends AppCompatActivity {
 
         setContentView(R.layout.activity_main);
 
+        // =========================================================================
+        // NATIVE IDENTITY AUTO-CHECK & INITIALIZATION
+        // =========================================================================
+        android.content.SharedPreferences prefs = getSharedPreferences(AppConstants.PREF_NAME, Context.MODE_PRIVATE);
+        if (!prefs.contains(AppConstants.KEY_NOSTR_PRIVATE_KEY) || !prefs.contains(AppConstants.KEY_NOSTR_PUBLIC_KEY)) {
+            try {
+                String[] keys = NostrKeyManager.generateKeyPair();
+                prefs.edit()
+                     .putString(AppConstants.KEY_NOSTR_PRIVATE_KEY, keys[0])
+                     .putString(AppConstants.KEY_NOSTR_PUBLIC_KEY, keys[1])
+                     .apply();
+                Log.d("MainActivity", "Identity Handshake: Generated new secure Nostr keypair. PubKey: " + keys[1]);
+            } catch (Exception e) {
+                Log.e("MainActivity", "Identity Handshake: Cryptographic key generation failed", e);
+            }
+        }
+
         webView = findViewById(R.id.webView);
 
         // Bind Native Browser Controls from activity_main.xml
@@ -123,7 +140,8 @@ public class MainActivity extends AppCompatActivity {
         });
         btnBrowserScraper.setOnClickListener(v -> {
             if (webView != null) {
-                webView.loadUrl(AppConstants.LOCAL_SCRAPER_URL);
+                // Redirects directly to the browser.html receiver inbox since scraper.html is removed
+                webView.loadUrl(AppConstants.LOCAL_BROWSER_URL);
             }
         });
 
@@ -235,9 +253,9 @@ public class MainActivity extends AppCompatActivity {
         }
 
         if (activeUrl.contains("amazon.in") || activeUrl.contains("amazon.com")) {
-            // E-Commerce Route: Redirect the WebView context directly to scraper.html
-            Log.d("MainActivity", "Native Scraper: Navigating directly to local scraper.html for Amazon product.");
-            webView.loadUrl(AppConstants.LOCAL_SCRAPER_URL);
+            // E-Commerce Route: Redirect directly to the secure local browser.html receiver inbox
+            Log.d("MainActivity", "Native Scraper: Navigating directly to local browser.html for Amazon product.");
+            webView.loadUrl(AppConstants.LOCAL_BROWSER_URL);
         } else {
             // Universal Mode: Trigger the scraper and manage color state transitions natively
             scrapeHandler.removeCallbacksAndMessages(null); // Cancel any lingering progress timers
@@ -297,7 +315,7 @@ public class MainActivity extends AppCompatActivity {
             if (url == null) return;
 
             // Hide native controls if loading ANY local web assets or the main index page
-            if (url.startsWith(AppConstants.LOCAL_INDEX_URL) || url.contains("browser.html") || url.contains("scraper.html")) {
+            if (url.startsWith(AppConstants.LOCAL_INDEX_URL) || url.contains("browser.html")) {
                 browserToolbar.setVisibility(View.GONE);
                 fabScrape.setVisibility(View.GONE);
             } else {
@@ -495,8 +513,8 @@ public class MainActivity extends AppCompatActivity {
                         return;
                     }
                 } 
-                // If inside local sub-panels (like scraper.html)
-                else if (currentUrl.contains("scraper.html")) {
+                // If inside local sub-panels (like browser.html receiver)
+                else if (currentUrl.contains("browser.html")) {
                     webView.loadUrl(AppConstants.LOCAL_INDEX_URL);
                     return;
                 }
