@@ -29,6 +29,9 @@ public class AppConstants {
     // NEW: Key for managing bulk scraper queues
     public static final String KEY_SCRAPER_QUEUE = "puter_scraper_queue";
 
+    // NEW: Key for toggling Auto Mode vs Manual Mode (Instruction One, Two, and Six)
+    public static final String KEY_AUTO_MODE = "puter_auto_mode";
+
     // --- NOSTR IDENTITY & RELAY PREFERENCES ---
     public static final String KEY_NOSTR_PRIVATE_KEY = "nostr_private_key_hex";
     public static final String KEY_NOSTR_PUBLIC_KEY = "nostr_public_key_hex";
