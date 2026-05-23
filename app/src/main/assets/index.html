@@ -415,6 +415,44 @@
   </div>
 
   <script>
+    /* --- CRYPTOGRAPHIC BECH32 DECODER & HEX TRANSLATION UTILITIES --- */
+    const BECH32_ALPHABET = "qpzry9x8gf2tvdw0s3jn54khce6mua7l";
+
+    function decodeBech32(bechString) {
+        const separatorIndex = bechString.lastIndexOf('1');
+        if (separatorIndex === -1) throw new Error("Invalid Bech32 key structure configuration.");
+        const hrp = bechString.slice(0, separatorIndex);
+        if (hrp !== "npub" && hrp !== "nsec") throw new Error("Key structure prefix is not npub or nsec.");
+        
+        const dataString = bechString.slice(separatorIndex + 1);
+        const data = [];
+        for (let i = 0; i < dataString.length; i++) {
+            const charIndex = BECH32_ALPHABET.indexOf(dataString[i]);
+            if (charIndex === -1) throw new Error("Bech32 contains prohibited structures.");
+            data.push(charIndex);
+        }
+        
+        const values = data.slice(0, -6); // Strip 6-character checksum
+        let accumulator = 0;
+        let bits = 0;
+        const bytes = [];
+        const maxAccumulator = (1 << 12) - 1;
+        
+        for (let i = 0; i < values.length; i++) {
+            accumulator = ((accumulator << 5) | values[i]) & maxAccumulator;
+            bits += 5;
+            while (bits >= 8) {
+                bits -= 8;
+                bytes.push((accumulator >> bits) & 0xff);
+            }
+        }
+        return new Uint8Array(bytes);
+    }
+
+    function bytesToHex(bytes) {
+        return Array.from(bytes).map(b => b.toString(16).padStart(2, '0')).join('');
+    }
+
     /* --- ENHANCEMENT: MARKED CONFIGURATION & CUSTOM RENDERER --- */
     const renderer = new marked.Renderer();
     renderer.code = function(code, language) {
@@ -1809,11 +1847,25 @@
                 return;
             }
 
-            const pubkeyHex = await getNativePubkeyHex();
-            if (!pubkeyHex) {
+            const rawPubkey = await getNativePubkeyHex();
+            if (!rawPubkey) {
                 updateLoaderCardText(loaderId, "Identity key not found. Executing standard fallback...");
                 executeStandardFallback(queryText, loaderId);
                 return;
+            }
+
+            // BIP-340 Key Translation (translates npub1 Bech32 string format to 64-char Hex format)
+            let pubkeyHex = rawPubkey;
+            if (rawPubkey.startsWith("npub1")) {
+                try {
+                    const decodedBytes = decodeBech32(rawPubkey);
+                    pubkeyHex = bytesToHex(decodedBytes);
+                } catch (keyError) {
+                    console.error("Key decoding error inside executeAutoModeQuery:", keyError);
+                    updateLoaderCardText(loaderId, "Key decoding failed. Executing standard fallback...");
+                    executeStandardFallback(queryText, loaderId);
+                    return;
+                }
             }
 
             const settingsJson = JSON.parse(window.AndroidInterface.getNostrSettings());
