@@ -1870,6 +1870,27 @@
 
             const settingsJson = JSON.parse(window.AndroidInterface.getNostrSettings());
             const relayUrl = settingsJson.relay_url || "wss://relay.damus.io";
+            const extPubkey = settingsJson.public_key || "";
+
+            if (!extPubkey) {
+                updateLoaderCardText(loaderId, "Extension public key missing. Executing standard fallback...");
+                executeStandardFallback(queryText, loaderId);
+                return;
+            }
+
+            // Translate Extension's public ID (Bech32 npub1 to 64-character hex format)
+            let extPubkeyHex = extPubkey;
+            if (extPubkey.startsWith("npub1")) {
+                try {
+                    const decodedExtBytes = decodeBech32(extPubkey);
+                    extPubkeyHex = bytesToHex(decodedExtBytes);
+                } catch (extKeyError) {
+                    console.error("Extension Key decoding error inside executeAutoModeQuery:", extKeyError);
+                    updateLoaderCardText(loaderId, "Extension key decoding failed. Executing standard fallback...");
+                    executeStandardFallback(queryText, loaderId);
+                    return;
+                }
+            }
 
             updateLoaderCardText(loaderId, "Establishing socket connection to relay...");
             const tempSocket = new WebSocket(relayUrl);
@@ -1882,6 +1903,10 @@
                     executeStandardFallback(queryText, loaderId);
                 }
             }, 40000); // 40 second timeout
+
+            // Track state counters for multiple parallel incoming slot results
+            let receivedEventsCount = 0;
+            let combinedScrapedItems = [];
 
             tempSocket.onopen = async () => {
                 updateLoaderCardText(loaderId, "Socket connected. Broadcasting signed query...");
@@ -1928,11 +1953,11 @@
                 // Publish Event
                 tempSocket.send(JSON.stringify(["EVENT", signedEvent]));
 
-                // Subscribe to scraped event containing extracted result JSONs
+                // Subscribe to scraped events authored by the extension containing extracted result JSONs
                 updateLoaderCardText(loaderId, "Waiting for extension crawl response...");
                 const reqFrame = ["REQ", "auto_mode_sub", {
                     kinds: [1],
-                    authors: [pubkeyHex],
+                    authors: [extPubkeyHex], // Corrected author filter: listen specifically to the extension (the scraping publisher)
                     "#t": ["puter_unofficial_scrap"]
                 }];
                 tempSocket.send(JSON.stringify(reqFrame));
@@ -1945,11 +1970,29 @@
                         const incomingEvent = message[2];
                         const content = incomingEvent.content;
                         if (content) {
-                            clearTimeout(socketTimeout);
-                            tempSocket.close();
+                            try {
+                                const parsedItems = JSON.parse(content);
+                                if (Array.isArray(parsedItems)) {
+                                    combinedScrapedItems = combinedScrapedItems.concat(parsedItems);
+                                } else {
+                                    combinedScrapedItems.push(parsedItems);
+                                }
+                            } catch (parseErr) {
+                                console.error("Failed to parse event content:", parseErr);
+                                combinedScrapedItems.push(content);
+                            }
 
-                            // Trigger in-memory prompt generation
-                            await executeAutoModeRAG(queryText, content, loaderId);
+                            receivedEventsCount++;
+                            updateLoaderCardText(loaderId, `Received results (${receivedEventsCount}/2)...`);
+
+                            // Once both parallel crawling slots have completed scraping and transmitted, finalize!
+                            if (receivedEventsCount >= 2) {
+                                clearTimeout(socketTimeout);
+                                tempSocket.close();
+
+                                // Trigger in-memory prompt generation with the complete accumulated context
+                                await executeAutoModeRAG(queryText, JSON.stringify(combinedScrapedItems), loaderId);
+                            }
                         }
                     }
                 } catch (e) {
@@ -2036,4 +2079,3 @@
   </script>
 </body>
 </html>
-
