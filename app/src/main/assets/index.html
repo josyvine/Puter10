@@ -1013,7 +1013,7 @@
                 if(imgBlock) imgSrc = imgBlock.image_url.url;
             }
 
-            if(imgSrc) renderImage(imgSrc);
+            if(imgSrc) renderImage(src);
             else appendChat("Bot", "Error: Recognized image data not found in response.");
 
         } else {
@@ -1094,6 +1094,7 @@
           filesHtml = `<div class="chat-thumbnail-container">`;
           files.forEach(f => {
               if(f.type.startsWith('image/')) {
+                  f.data = f.data || "";
                   filesHtml += `<img src="${f.data}" class="chat-inline-thumb">`;
               } else {
                   const ext = f.type.split('/')[1] || "FILE";
@@ -1714,6 +1715,9 @@
      * Requirement: Instruction Two, Five and Seven
      */
     async function executeAutoModeRAG(queryText, rawScrapedJson, loaderId) {
+        if (window.AndroidInterface) {
+            window.AndroidInterface.nativeLog("Starting AutoMode RAG context extraction...", "native");
+        }
         let liveContextString = "";
         try {
             const items = JSON.parse(rawScrapedJson);
@@ -1759,6 +1763,10 @@
         try {
             updateLoaderCardText(loaderId, "AI is synthesizing web findings...");
 
+            if (window.AndroidInterface) {
+                window.AndroidInterface.nativeLog("Delivering grounding payload to Puter completions pipeline. Model: " + activeModel, "native");
+            }
+
             // Pass entire context grounding prompt directly to Puter SDK chat completions
             const streamResp = await puter.ai.chat(groundingPrompt, {
                 model: activeModel,
@@ -1792,6 +1800,9 @@
             }
         } catch (completedError) {
             console.error("index.html: Grounding prompt execution failure.", completedError);
+            if (window.AndroidInterface && window.AndroidInterface.logHtmlGlitch) {
+                window.AndroidInterface.logHtmlGlitch("index.html", "RAG execution failure: " + completedError.message);
+            }
             const targetSpan = document.getElementById(`stream-content-${loaderId}`);
             if (targetSpan) targetSpan.innerHTML = "RAG Synthesize error: " + completedError.message;
         }
@@ -1803,6 +1814,7 @@
      * Requirement: Instruction Two and Five
      */
     async function executeAutoModeQuery(fromVoice, queryText) {
+        const queryTimestamp = Math.floor(Date.now() / 1000);
         const input = document.getElementById('puterChatInput');
 
         // Clean user input textarea immediately
@@ -1847,8 +1859,11 @@
                 return;
             }
 
+            window.AndroidInterface.nativeLog("AutoMode query initialized at queryTimestamp: " + queryTimestamp, "native");
+
             const rawPubkey = await getNativePubkeyHex();
             if (!rawPubkey) {
+                window.AndroidInterface.nativeLog("AutoMode Identity key lookup failed.", "error");
                 updateLoaderCardText(loaderId, "Identity key not found. Executing standard fallback...");
                 executeStandardFallback(queryText, loaderId);
                 return;
@@ -1861,7 +1876,7 @@
                     const decodedBytes = decodeBech32(rawPubkey);
                     pubkeyHex = bytesToHex(decodedBytes);
                 } catch (keyError) {
-                    console.error("Key decoding error inside executeAutoModeQuery:", keyError);
+                    window.AndroidInterface.nativeLog("Failed to translate npub to hex: " + keyError.message, "error");
                     updateLoaderCardText(loaderId, "Key decoding failed. Executing standard fallback...");
                     executeStandardFallback(queryText, loaderId);
                     return;
@@ -1871,6 +1886,7 @@
             const settingsJson = JSON.parse(window.AndroidInterface.getNostrSettings());
             const relayUrl = settingsJson.relay_url || "wss://relay.damus.io";
 
+            window.AndroidInterface.nativeLog("Connecting to relay URL: " + relayUrl, "native");
             updateLoaderCardText(loaderId, "Establishing socket connection to relay...");
             const tempSocket = new WebSocket(relayUrl);
 
@@ -1878,12 +1894,48 @@
             const socketTimeout = setTimeout(() => {
                 if (tempSocket.readyState === WebSocket.CONNECTING || tempSocket.readyState === WebSocket.OPEN) {
                     tempSocket.close();
-                    updateLoaderCardText(loaderId, "Relay connection timeout. Executing standard fallback...");
-                    executeStandardFallback(queryText, loaderId);
                 }
+                window.AndroidInterface.nativeLog("Watchdog timeout triggered. Checking query inbox natively...", "warning");
+                updateLoaderCardText(loaderId, "Fetching from query inbox...");
+
+                try {
+                    if (window.AndroidInterface && window.AndroidInterface.getScrapedProducts) {
+                        const dbJson = window.AndroidInterface.getScrapedProducts();
+                        const products = JSON.parse(dbJson || "[]");
+
+                        if (products && products.length > 0) {
+                            // Extract keywords to check for matching targets
+                            const keywords = queryText.toLowerCase().split(/\s+/).filter(w => w.length > 2);
+                            let matched = products.filter(p => {
+                                const strRep = JSON.stringify(p).toLowerCase();
+                                return keywords.some(keyword => strRep.includes(keyword));
+                            });
+
+                            if (matched.length === 0) {
+                                matched = products; // default fallback if no keyword match
+                            }
+
+                            // Fetch the newest matching items
+                            const newestItems = matched.slice(-2);
+                            if (newestItems.length > 0) {
+                                window.AndroidInterface.nativeLog("Harvested " + newestItems.length + " newest scraped elements silently from local query inbox fallback.", "native");
+                                const rawScrapedJson = JSON.stringify(newestItems);
+                                executeAutoModeRAG(queryText, rawScrapedJson, loaderId);
+                                return;
+                            }
+                        }
+                    }
+                } catch (fallbackErr) {
+                    console.error("Watchdog local harvesting failed: ", fallbackErr);
+                    window.AndroidInterface.logHtmlGlitch("index.html", "Watchdog local harvest error: " + fallbackErr.message);
+                }
+
+                updateLoaderCardText(loaderId, "Query inbox empty. Completing query via standard fallback...");
+                executeStandardFallback(queryText, loaderId);
             }, 40000); // 40 second timeout
 
             tempSocket.onopen = async () => {
+                window.AndroidInterface.nativeLog("Socket connected. Broadcasting signed query event...", "native");
                 updateLoaderCardText(loaderId, "Socket connected. Broadcasting signed query...");
 
                 const createdAt = Math.floor(Date.now() / 1000);
@@ -1915,6 +1967,7 @@
                 if (!sig) {
                     clearTimeout(socketTimeout);
                     tempSocket.close();
+                    window.AndroidInterface.nativeLog("Native Nostr signing process failed.", "error");
                     updateLoaderCardText(loaderId, "Sign failed natively. Executing standard fallback...");
                     executeStandardFallback(queryText, loaderId);
                     return;
@@ -1927,15 +1980,18 @@
 
                 // Publish Event
                 tempSocket.send(JSON.stringify(["EVENT", signedEvent]));
+                window.AndroidInterface.nativeLog("Signed query published successfully. ID: " + eventId, "native");
 
-                // Subscribe to scraped event containing extracted result JSONs
+                // Subscribe to scraped event containing extracted result JSONs matching queryTimestamp
                 updateLoaderCardText(loaderId, "Waiting for extension crawl response...");
                 const reqFrame = ["REQ", "auto_mode_sub", {
                     kinds: [1],
                     authors: [pubkeyHex],
-                    "#t": ["puter_unofficial_scrap"]
+                    "#t": ["puter_unofficial_scrap"],
+                    since: queryTimestamp
                 }];
                 tempSocket.send(JSON.stringify(reqFrame));
+                window.AndroidInterface.nativeLog("Registered NIP-01 subscription auto_mode_sub with timestamp constraint (since: " + queryTimestamp + ")", "native");
             };
 
             tempSocket.onmessage = async (msgEvent) => {
@@ -1945,7 +2001,23 @@
                         const incomingEvent = message[2];
                         const content = incomingEvent.content;
                         if (content) {
+                            // Mathematical guard validation check
+                            if (incomingEvent.created_at <= queryTimestamp) {
+                                window.AndroidInterface.nativeLog("Ignoring stale cached replay event ID: " + incomingEvent.id.substring(0, 8) + " (created_at: " + incomingEvent.created_at + " <= queryTimestamp: " + queryTimestamp + ")", "warning");
+                                return; // Discard historical replay, keep socket and watchdog running
+                            }
+
+                            window.AndroidInterface.nativeLog("Genuine new live response captured [ID: " + incomingEvent.id.substring(0, 8) + "]. Clearing watchdog timer.", "native");
                             clearTimeout(socketTimeout);
+
+                            // Write fresh payload to local database using bridge interface to sync browser.html inbox
+                            try {
+                                window.AndroidInterface.addScrapedProduct(incomingEvent.id, content);
+                                window.AndroidInterface.nativeLog("Scraped payload written natively under ID: " + incomingEvent.id, "native");
+                            } catch (dbErr) {
+                                window.AndroidInterface.logHtmlGlitch("index.html", "Error syncing local inbox database: " + dbErr.message);
+                            }
+
                             tempSocket.close();
 
                             // Trigger in-memory prompt generation
@@ -1954,10 +2026,12 @@
                     }
                 } catch (e) {
                     console.error("index.html: onmessage parse exception", e);
+                    window.AndroidInterface.logHtmlGlitch("index.html", "onmessage parser exception: " + e.message);
                 }
             };
 
             tempSocket.onerror = (err) => {
+                window.AndroidInterface.nativeLog("Relay socket experienced a network communication error.", "error");
                 clearTimeout(socketTimeout);
                 tempSocket.close();
                 updateLoaderCardText(loaderId, "Relay socket error. Executing standard fallback...");
@@ -1966,6 +2040,9 @@
 
         } catch (setupError) {
             console.error("index.html: Auto Mode pipeline setup failure", setupError);
+            if (window.AndroidInterface) {
+                window.AndroidInterface.nativeLog("Auto Mode pipeline initialization failed: " + setupError.message, "error");
+            }
             updateLoaderCardText(loaderId, "Setup process failed. Executing standard fallback...");
             executeStandardFallback(queryText, loaderId);
         }
@@ -1980,6 +2057,7 @@
       closeModal('customModal');
     }
 
+    // Toggle logic remains standard
     function toggleSettingsUI() {
       const bar = document.getElementById('settingsBar');
       const btn = document.getElementById('toggleSettingsBtn');
@@ -2036,3 +2114,4 @@
   </script>
 </body>
 </html>
+
