@@ -494,7 +494,7 @@
     </div>
   </div>
 
-  <!-- Operational Mode Selector Card (Instruction Four) -->
+  <!-- Operational Mode Selector Card -->
   <div class="mode-card">
     <div class="mode-header">Operational Mode Selector</div>
     <div class="mode-buttons">
@@ -560,7 +560,8 @@
         const consoleBody = document.getElementById("consoleBody");
         if (!consoleBody) return;
         
-        const timestamp = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
+        const now = new Date();
+        const timestamp = now.toTimeString().split(' ')[0]; // Returns formatted HH:MM:SS string
         let prefix = `[${timestamp}] `;
         
         if (type === "error") {
@@ -569,6 +570,8 @@
             prefix += "[WARN] ";
         } else if (type === "success") {
             prefix += "[SUCCESS] ";
+        } else if (type === "system") {
+            prefix += "[SYSTEM] ";
         } else {
             prefix += "[INFO] ";
         }
@@ -601,6 +604,7 @@
         const consoleBody = document.getElementById("consoleBody");
         if (consoleBody) {
             consoleBody.innerHTML = "Console log cleared.\n";
+            addConsoleLog("Console log cleared.", "system");
         }
     }
 
