@@ -408,6 +408,62 @@
     .status-dot.connected {
       background: #27ae60; /* GREEN when socket is fully open */
     }
+
+    /* =========================================================================
+     * NEW: DIAGNOSTIC CONSOLE LOG CARD STYLING
+     * ========================================================================= */
+    .console-card {
+      width: 90%;
+      max-width: 500px;
+      background: #1e1e1e;
+      border: 1px solid #333;
+      border-radius: 12px;
+      padding: 15px;
+      margin-top: 20px;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+      display: flex;
+      flex-direction: column;
+    }
+
+    .console-header {
+      font-size: 12px;
+      font-weight: bold;
+      color: #aaa;
+      margin-bottom: 12px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      border-bottom: 1px solid #333;
+      padding-bottom: 6px;
+    }
+
+    .console-body {
+      height: 150px;
+      overflow-y: auto;
+      font-family: 'Courier New', monospace;
+      font-size: 11px;
+      color: #00ff00;
+      background: #000;
+      padding: 8px;
+      border-radius: 6px;
+      white-space: pre-wrap;
+      word-break: break-all;
+    }
+
+    .console-btn-clear {
+      background: none;
+      border: none;
+      color: #1a73e8;
+      font-size: 11px;
+      font-weight: bold;
+      cursor: pointer;
+    }
+
+    .console-btn-clear:hover {
+      text-decoration: underline;
+    }
   </style>
 </head>
 <body>
@@ -487,9 +543,77 @@
     </div>
   </div>
 
+  <!-- Diagnostic Console Log Card -->
+  <div class="console-card">
+    <div class="console-header">
+      <span>Diagnostic Console</span>
+      <button class="console-btn-clear" onclick="clearConsoleLog()">Clear Log</button>
+    </div>
+    <div id="consoleBody" class="console-body">Console system ready. Waiting for network and user events...</div>
+  </div>
+
   <script>
+    // =========================================================================
+    // ADVANCED CONSOLE LOGGER LOGIC
+    // =========================================================================
+    function addConsoleLog(message, type = "info") {
+        const consoleBody = document.getElementById("consoleBody");
+        if (!consoleBody) return;
+        
+        const timestamp = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
+        let prefix = `[${timestamp}] `;
+        
+        if (type === "error") {
+            prefix += "[ERROR] ";
+        } else if (type === "warning") {
+            prefix += "[WARN] ";
+        } else if (type === "success") {
+            prefix += "[SUCCESS] ";
+        } else {
+            prefix += "[INFO] ";
+        }
+
+        const logLine = document.createElement("div");
+        logLine.style.marginBottom = "4px";
+        if (type === "error") {
+            logLine.style.color = "#ff4d4d";
+        } else if (type === "warning") {
+            logLine.style.color = "#ffaa00";
+        } else if (type === "success") {
+            logLine.style.color = "#27ae60";
+        } else if (type === "system") {
+            logLine.style.color = "#3498db";
+        } else {
+            logLine.style.color = "#00ff00";
+        }
+        
+        logLine.innerText = prefix + message;
+        consoleBody.appendChild(logLine);
+        consoleBody.scrollTop = consoleBody.scrollHeight;
+
+        // Forward back to Android system log as well
+        if (window.AndroidInterface && window.AndroidInterface.logTechnicalEvent) {
+            window.AndroidInterface.logTechnicalEvent("browser_console: " + message);
+        }
+    }
+
+    function clearConsoleLog() {
+        const consoleBody = document.getElementById("consoleBody");
+        if (consoleBody) {
+            consoleBody.innerHTML = "Console log cleared.\n";
+        }
+    }
+
+    // Expose global callback on window scope for Android WebView evaluateJavascript injections
+    window.addNativeLogToConsole = function(msg, type) {
+        addConsoleLog(msg, type);
+    };
+
     // --- TOTAL SURVEILLANCE: GLOBAL EXCEPTION INTERCEPTORS ---
     window.onerror = function(message, source, lineno, colno, error) {
+        const glitchDetails = "Global Exception: " + message + " | Source: " + source + " at line " + lineno + ":" + colno;
+        addConsoleLog(glitchDetails, "error");
+
         if (window.AndroidInterface && window.AndroidInterface.logHtmlGlitch) {
             const stack = error ? error.stack : "No stack trace available";
             const details = "Error: " + message + "\nSource: " + source + " at line " + lineno + ":" + colno + "\nStack:\n" + stack;
@@ -499,8 +623,10 @@
     };
 
     window.onunhandledrejection = function(event) {
+        const reason = event.reason ? (event.reason.stack || event.reason) : "No rejection reason";
+        addConsoleLog("Promise Rejection: " + reason, "error");
+
         if (window.AndroidInterface && window.AndroidInterface.logHtmlGlitch) {
-            const reason = event.reason ? (event.reason.stack || event.reason) : "No rejection reason";
             window.AndroidInterface.logHtmlGlitch("browser.html", "Unhandled Promise Rejection:\n" + reason);
         }
     };
@@ -529,6 +655,8 @@
             targetUrl = "https://www.google.com/search?q=" + encodeURIComponent(query);
         }
 
+        addConsoleLog("Portal Redirecting Main Frame -> " + targetUrl, "system");
+
         if (window.AndroidInterface && window.AndroidInterface.nativeLog) {
             window.AndroidInterface.nativeLog("Portal Redirecting Main Frame -> " + targetUrl, "native");
         }
@@ -544,6 +672,7 @@
     }
 
     function exitBrowser() {
+        addConsoleLog("Navigating UI back to primary chat screen", "system");
         if (window.AndroidInterface && window.AndroidInterface.loadLocalUrl) {
             window.AndroidInterface.loadLocalUrl('index.html');
         } else {
@@ -553,6 +682,7 @@
 
     // Legacy Scraper routing removed. Re-connects Nostr WebSocket Client manually.
     function goToScraper() {
+        addConsoleLog("Manual Scraper reconnect sequence triggered", "system");
         initNostrConnection();
     }
 
@@ -615,9 +745,11 @@
                 document.getElementById("extensionPublicKey").value = pubKey;
                 document.getElementById("nostrRelaySelect").value = relayUrl;
                 
+                addConsoleLog("Settings updated in UI. Extension key: " + pubKey.substring(0, 15) + "...", "info");
                 window.AndroidInterface.nativeLog("browser.html: Synchronized handshake configuration UI.", "info");
             }
         } catch (e) {
+            addConsoleLog("Failed to sync settings: " + e.message, "error");
             window.AndroidInterface.logHtmlGlitch("browser.html", "Failed to deserialize settings payload: " + e.message);
         }
     }
@@ -632,8 +764,10 @@
             const relayUrl = document.getElementById("nostrRelaySelect").value;
             
             window.AndroidInterface.saveNostrSettings(pubKey, relayUrl);
+            addConsoleLog("Settings auto-saved. Extension key: " + pubKey.substring(0, 15) + "...", "info");
             window.AndroidInterface.nativeLog("browser.html: Auto-saved handshakes to SharedPreferences.", "info");
         } catch (e) {
+            addConsoleLog("Failed to auto-save settings: " + e.message, "error");
             window.AndroidInterface.logHtmlGlitch("browser.html", "Failed to persist updated settings: " + e.message);
         }
     }
@@ -644,6 +778,7 @@
     function toggleNostrConnection() {
         if (nostrSocket && (nostrSocket.readyState === WebSocket.OPEN || nostrSocket.readyState === WebSocket.CONNECTING)) {
             connectionForcedClosed = true;
+            addConsoleLog("Manual connection closure requested by user.", "warning");
             if (nostrSocket) {
                 try { nostrSocket.close(); } catch(e) {}
             }
@@ -651,6 +786,7 @@
             window.AndroidInterface.nativeLog("browser.html: Manually disconnected relay socket.", "info");
         } else {
             connectionForcedClosed = false;
+            addConsoleLog("Manual connection open requested by user.", "system");
             initNostrConnection();
         }
     }
@@ -664,7 +800,10 @@
 
         // Terminate existing socket instances cleanly before opening a new channel
         if (nostrSocket) {
-            try { nostrSocket.close(); } catch(e) {}
+            try { 
+                addConsoleLog("Closing previous WebSocket connection...", "info");
+                nostrSocket.close(); 
+            } catch(e) {}
         }
 
         updateStatusUI("connecting");
@@ -675,6 +814,7 @@
             const extPubkey = document.getElementById("extensionPublicKey").value.trim();
 
             if (!extPubkey) {
+                addConsoleLog("Connection aborted: Extension key is missing.", "warning");
                 window.AndroidInterface.showToast("Handshake Warning: Link Extension Public ID in Settings.");
                 updateStatusUI("error");
                 return;
@@ -685,26 +825,32 @@
             try {
                 const hexRegex = /^[a-fA-F0-9]{64}$/;
                 if (hexRegex.test(extPubkey)) {
+                    addConsoleLog("Detected raw 64-character hexadecimal public key format.", "info");
                     window.AndroidInterface.nativeLog("Inbox Client: Detected raw 64-character hexadecimal public key format.", "info");
                 } else if (extPubkey.startsWith("npub1")) {
+                    addConsoleLog("Detected Bech32 npub format. Translating to hex...", "info");
                     window.AndroidInterface.nativeLog("Inbox Client: Detected Bech32 npub format. Translating to hex...", "info");
                     const decodedBytes = decodeBech32(extPubkey);
                     hexPubkey = bytesToHex(decodedBytes);
+                    addConsoleLog("Derived hex public key: " + hexPubkey.substring(0, 15) + "...", "info");
                     window.AndroidInterface.nativeLog("Inbox Client: Derived hex public key: " + hexPubkey, "info");
                 } else {
                     throw new Error("Unsupported public key format. Must be 64-char hex or start with 'npub1'.");
                 }
             } catch (keyError) {
+                addConsoleLog("Public key parsing failed: " + keyError.message, "error");
                 window.AndroidInterface.reportGlitchedLogic("NOSTR_KEY_PARSE_FAILED", "Failed to parse public key '" + extPubkey + "': " + keyError.message);
                 updateStatusUI("error");
                 return;
             }
 
+            addConsoleLog("Connecting to Nostr relay: " + relayUrl + "...", "info");
             window.AndroidInterface.nativeLog("Inbox Client: Connecting directly to " + relayUrl, "info");
             nostrSocket = new WebSocket(relayUrl);
 
             nostrSocket.onopen = () => {
                 updateStatusUI("connected");
+                addConsoleLog("Nostr socket connected successfully.", "success");
                 window.AndroidInterface.nativeLog("Inbox Client: Socket established successfully.", "info");
 
                 // Broadcast NIP-01 Subscription Request (Filter for Kind 1 events authored by the extension)
@@ -713,6 +859,7 @@
                     authors: [hexPubkey],
                     "#t": ["puter_unofficial_scrap"]
                 }];
+                addConsoleLog("Broadcasting NIP-01 subscription request: puter_inbox_sub", "info");
                 nostrSocket.send(JSON.stringify(reqFrame));
             };
 
@@ -723,20 +870,24 @@
                     // Route notice rejections natively
                     if (Array.isArray(message) && message[0] === "NOTICE") {
                         const rejectDetails = `Relay Notice from ${relayUrl}: ${message[1]}`;
+                        addConsoleLog("Relay Notice: " + message[1], "warning");
                         window.AndroidInterface.reportGlitchedLogic("NOSTR_RELAY_NOTICE", rejectDetails);
                     }
 
                     // Handle standard subscription termination messages natively
                     if (Array.isArray(message) && message[0] === "CLOSED") {
                         const closeReason = `Relay Subscription Closed from ${relayUrl} on sub: ${message[1]} -- Reason: ${message[2] || 'Unspecified'}`;
+                        addConsoleLog("Relay Subscription Closed: " + (message[2] || "Unspecified reason"), "error");
                         window.AndroidInterface.reportGlitchedLogic("NOSTR_RELAY_CLOSED", closeReason);
                     }
 
                     if (Array.isArray(message) && message[0] === "EVENT" && message[2]) {
                         const event = message[2];
+                        addConsoleLog("Incoming scraped event received. Event ID: " + event.id.substring(0, 10) + "...", "success");
                         processIncomingScrapedEvent(event);
                     }
                 } catch(e) {
+                    addConsoleLog("Failed to parse incoming frame: " + e.message, "error");
                     const parseDetails = "Failed to deserialize WebSocket Frame: " + e.message + "\nFrame: " + msgEvent.data;
                     window.AndroidInterface.logHtmlGlitch("NOSTR_SERIALIZE_EXCEPTION", parseDetails);
                 }
@@ -744,6 +895,7 @@
 
             nostrSocket.onclose = (closeEvent) => {
                 updateStatusUI("disconnected");
+                addConsoleLog("Nostr socket connection closed. Code: " + closeEvent.code + " | Clean: " + closeEvent.wasClean, "warning");
                 window.AndroidInterface.nativeLog("Inbox Client: Connection closed.", "info");
                 
                 // Track unexpected connection terminations natively
@@ -755,12 +907,14 @@
 
             nostrSocket.onerror = (error) => {
                 updateStatusUI("error");
+                addConsoleLog("Nostr socket experienced a communication error.", "error");
                 const errDetails = `WebSocket error occurred during communication with: ${relayUrl}. ReadyState: ${nostrSocket.readyState}`;
                 window.AndroidInterface.reportGlitchedLogic("NOSTR_SOCKET_ERROR", errDetails);
             };
 
         } catch (setupError) {
             updateStatusUI("error");
+            addConsoleLog("WebSocket setup exception: " + setupError.message, "error");
             window.AndroidInterface.reportGlitchedLogic("NOSTR_SETUP_CRITICAL", "Setup Failed for relay " + (document.getElementById("nostrRelaySelect")?.value || "unknown") + " with error: " + setupError.message);
         }
     }
@@ -865,19 +1019,25 @@
                         content: isUniversal ? item.specifications.raw_content : null
                     };
 
+                    addConsoleLog("Saving scraped item to local database. ID: " + trackingId, "system");
                     window.AndroidInterface.addScrapedProduct(trackingId, JSON.stringify(databaseStructure));
                     window.AndroidInterface.showToast(`Saved to history: ${label}`);
                     
                     // Delete card visually after save
                     card.style.transform = "translateX(50px)";
                     card.style.opacity = "0";
-                    setTimeout(() => card.remove(), 300);
+                    setTimeout(() => {
+                        card.remove();
+                        addConsoleLog("Cleaned card view for ID: " + trackingId, "info");
+                    }, 300);
                 };
 
                 listContainer.appendChild(card);
+                addConsoleLog("Rendered new inbox element card: " + label, "info");
             });
 
         } catch (parseError) {
+            addConsoleLog("Mismatched content JSON format: " + parseError.message, "error");
             const errDetails = "Mismatched content JSON format: " + parseError.message + "\nEvent Content: " + event.content;
             window.AndroidInterface.logHtmlGlitch("NOSTR_PARSER_EXCEPTION", errDetails);
         }
@@ -897,9 +1057,11 @@
         try {
             window.AndroidInterface.setAutoMode(isAuto);
             updateOperationalModeUI(isAuto);
+            addConsoleLog("Operational preference updated natively. AutoMode: " + isAuto, "system");
             window.AndroidInterface.showToast("Switched system mode to: " + (isAuto ? "Auto Mode" : "Manual Mode"));
             window.AndroidInterface.nativeLog("browser.html: Operational preference updated natively.", "info");
         } catch (e) {
+            addConsoleLog("Failed to write operational preference: " + e.message, "error");
             window.AndroidInterface.logHtmlGlitch("browser.html", "Failed to write operational preference: " + e.message);
         }
     }
@@ -929,14 +1091,17 @@
         try {
             const isAuto = window.AndroidInterface.getAutoMode();
             updateOperationalModeUI(isAuto);
+            addConsoleLog("Synchronized mode state with native backend. AutoMode: " + isAuto, "info");
             window.AndroidInterface.nativeLog("browser.html: Synchronized state with SharedPreferences.", "info");
         } catch (e) {
+            addConsoleLog("Failed to sync mode state on load: " + e.message, "error");
             window.AndroidInterface.logHtmlGlitch("browser.html", "Failed to query operational mode state: " + e.message);
         }
     }
 
     // Initialize Settings UI and Connection on start
     window.onload = () => {
+        addConsoleLog("Page Lifecycle: browser.html onload complete.", "info");
         loadNostrSettingsInUI();
         initNostrConnection();
         syncOperationalModeOnLoad(); // Instantly aligns buttons based on local save state
