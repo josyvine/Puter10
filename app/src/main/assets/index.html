@@ -1748,7 +1748,7 @@
 
         // Layer 3: Behavioral and Formatting Constraints
         groundingPrompt += "=== BEHAVIORAL AND FORMATTING CONSTRAINTS ===\n";
-        groundPrompt += "- The \"No Technical Jargon\" Rule: You must NEVER mention technical or developmental terms under any circumstances, including but not limited to: \"raw JSON\", \"scraped databases\", \"API payloads\", \"web crawlers\", \"HTML tags\", \"Nostr events\", or \"relays\".\n";
+        groundingPrompt += "- The \"No Technical Jargon\" Rule: You must NEVER mention technical or developmental terms under any circumstances, including but not limited to: \"raw JSON\", \"scraped databases\", \"API payloads\", \"web crawlers\", \"HTML tags\", \"Nostr events\", or \"relays\".\n";
         groundingPrompt += "- The \"Natural Voice\" Rule: You must speak naturally, directly, and conversationally, as if you naturally possess this live, up-to-date knowledge.\n";
         groundingPrompt += "- The \"Hallucination Guard\": If the provided web context does not contain the information needed to answer the question, you must politely state that you cannot find the information in the current search results, rather than fabricating facts.\n\n";
 
@@ -2036,7 +2036,3 @@
   </script>
 </body>
 </html>
-
-Please update 
-
-Don't omitted or compressed 
