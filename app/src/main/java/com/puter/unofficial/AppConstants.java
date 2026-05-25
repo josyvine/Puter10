@@ -31,6 +31,7 @@ public class AppConstants {
 
     // NEW: Key for toggling Auto Mode vs Manual Mode (Instruction One, Two, and Six)
     public static final String KEY_AUTO_MODE = "puter_auto_mode";
+    public static final String KEY_MODE_AUTO = "puter_auto_mode"; // Defensive compile-time alias
 
     // --- NOSTR IDENTITY & RELAY PREFERENCES ---
     public static final String KEY_NOSTR_PRIVATE_KEY = "nostr_private_key_hex";
@@ -47,7 +48,9 @@ public class AppConstants {
     public static final String LOCAL_INDEX_URL = "https://appassets.androidplatform.net/assets/index.html";
     
     // NEW: Local asset path for the manual browser frontend.
-    public static final String LOCAL_BROWSER_URL = "https://appassets.androidplatform.net/assets/browser.html";
+    // FIXED: Bypasses the virtual domain assets to point directly to the public DuckDuckGo HTML template
+    // to prevent DNS NXDOMAIN errors inside external browsers.
+    public static final String LOCAL_BROWSER_URL = "https://html.duckduckgo.com/html/?q=";
 
     // Markers for detecting successful SDK authentication redirects
     public static final String AUTH_SUCCESS_MARKER = "signed_in=true";
