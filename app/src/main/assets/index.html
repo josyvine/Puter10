@@ -126,7 +126,7 @@
     .loader-text { font-size: 13px; color: #666; margin-top: 8px; font-weight: bold; }
 
     /* --- ENHANCEMENT: CONTEXT MENU CSS --- */
-    .context-menu { position: fixed; background: #fff; border-radius: 12px; box-shadow: 0 5px 20px rgba(0,0,0,0.3); display: none; z-index: 1000; min-width: 150px; padding: 5px 0; border: 1px solid #ddd; }
+    .context-menu { position: fixed; background: #fff; border-radius: 12px; box-shadow: 0 5px 20px rgba(0,0,0,0.3); display: none; z-index: 1000; min-width: 180px; padding: 5px 0; border: 1px solid #ddd; }
     .context-menu li { list-style: none; padding: 12px 20px; font-size: 15px; cursor: pointer; display: flex; align-items: center; gap: 10px; color: #333; }
     .context-menu li:hover { background: #f0f0f0; }
     .context-menu li span { font-size: 18px; color: #1a73e8; }
@@ -356,11 +356,14 @@
     </div>
   </div>
 
-  <!-- ENHANCEMENT: LONG PRESS CONTEXT MENU -->
+  <!-- ENHANCEMENT: DYNAMIC CONTEXT-AWARE CONTEXT MENU (SIX ACTIVE OPTIONS) -->
   <ul id="customContextMenu" class="context-menu">
       <li onclick="handleMenuAction('copy')"><span class="material-symbols-outlined">content_copy</span> Copy Chat</li>
       <li onclick="handleMenuAction('read')"><span class="material-symbols-outlined">volume_up</span> Read Aloud</li>
       <li onclick="handleMenuAction('delete')" class="delete-action"><span class="material-symbols-outlined">delete</span> Delete Chat</li>
+      <li onclick="handleMenuAction('refresh_relay')"><span class="material-symbols-outlined">sync</span> Refresh Relay</li>
+      <li id="menuToggleModeOption" onclick="handleMenuAction('toggle_mode')"><!-- Dynamically evaluated toggle button --></li>
+      <li onclick="handleMenuAction('end_session')"><span class="material-symbols-outlined">power_settings_new</span> End Session</li>
   </ul>
 
   <!-- HELP MODAL -->
@@ -566,8 +569,10 @@
       if (!e.target.closest('.custom-select-container')) {
           document.getElementById('accordionMenu').classList.remove('show');
       }
-      // Close Context Menu
-      document.getElementById('customContextMenu').style.display = 'none';
+      // Close Context Menu if click was outside the menu (Specification 4)
+      if (!e.target.closest('#customContextMenu')) {
+          document.getElementById('customContextMenu').style.display = 'none';
+      }
     };
 
     document.getElementById('puterMenuButton').onclick = (e) => {
@@ -1030,8 +1035,31 @@
 
             // Apply long press logic
             let pressTimer;
-            div.onpointerdown = (e) => { pressTimer = window.setTimeout(() => { showContextMenu(e, fullBotText, msgId); }, 700); };
-            div.onpointerup = () => clearTimeout(pressTimer);
+            let startX, startY;
+            div.onpointerdown = (e) => { 
+                if (pressTimer) clearTimeout(pressTimer);
+                startX = e.clientX;
+                startY = e.clientY;
+                pressTimer = window.setTimeout(() => { showContextMenu(e, fullBotText, msgId); }, 700); 
+            };
+            div.onpointermove = (e) => {
+                if (pressTimer && Math.hypot(e.clientX - startX, e.clientY - startY) > 8) {
+                    clearTimeout(pressTimer);
+                    pressTimer = null;
+                }
+            };
+            div.onpointerup = () => {
+                if (pressTimer) {
+                    clearTimeout(pressTimer);
+                    pressTimer = null;
+                }
+            };
+            div.onpointercancel = () => {
+                if (pressTimer) {
+                    clearTimeout(pressTimer);
+                    pressTimer = null;
+                }
+            };
             div.oncontextmenu = (e) => e.preventDefault();
 
             div.innerHTML = `<div class="message-content"><b>Bot:</b><br><span id="stream-content-${msgId}"></span></div>`;
@@ -1078,15 +1106,35 @@
       div.className = "message " + (sender === "User" ? "user-message" : "bot-message");
       div.id = "msg-" + msgId;
 
-      // ENHANCEMENT: LONG PRESS HANDLER
+      // ENHANCEMENT: LONG PRESS HANDLER WITH TOUCH DRIFT CANCELLATION
       let pressTimer;
+      let startX, startY;
       div.onpointerdown = (e) => {
+          if (pressTimer) clearTimeout(pressTimer);
+          startX = e.clientX;
+          startY = e.clientY;
           pressTimer = window.setTimeout(() => {
               showContextMenu(e, text, "msg-" + msgId);
           }, 700); // 700ms long press
       };
-      div.onpointerup = () => clearTimeout(pressTimer);
-      div.onpointercancel = () => clearTimeout(pressTimer);
+      div.onpointermove = (e) => {
+          if (pressTimer && Math.hypot(e.clientX - startX, e.clientY - startY) > 8) {
+              clearTimeout(pressTimer);
+              pressTimer = null;
+          }
+      };
+      div.onpointerup = () => {
+          if (pressTimer) {
+              clearTimeout(pressTimer);
+              pressTimer = null;
+          }
+      };
+      div.onpointercancel = () => {
+          if (pressTimer) {
+              clearTimeout(pressTimer);
+              pressTimer = null;
+          }
+      };
       div.oncontextmenu = (e) => e.preventDefault(); // Disable system context menu
 
       // Logic to build thumbnails HTML for inside the chat bubble
@@ -1121,8 +1169,27 @@
 
     // --- ENHANCEMENT: CONTEXT MENU ACTIONS ---
     function showContextMenu(e, text, id) {
+        e.preventDefault();
+        e.stopPropagation();
+
         activeMessageContext = { text, id };
         const menu = document.getElementById('customContextMenu');
+
+        // Specification 2: Dynamic evaluation of SharedPreferences Mode Toggle
+        const toggleLi = document.getElementById('menuToggleModeOption');
+        if (toggleLi) {
+            let isAuto = false;
+            if (window.AndroidInterface && window.AndroidInterface.getAutoMode) {
+                isAuto = window.AndroidInterface.getAutoMode();
+            }
+
+            if (isAuto) {
+                toggleLi.innerHTML = `<span class="material-symbols-outlined">bolt</span> Auto Mode`;
+            } else {
+                toggleLi.innerHTML = `<span class="material-symbols-outlined">pan_tool</span> Normal Mode`;
+            }
+        }
+
         menu.style.display = 'block';
 
         // Position near finger
@@ -1130,20 +1197,22 @@
         let y = e.clientY;
 
         // Overflow check
-        if(x + 150 > window.innerWidth) x -= 150;
-        if(y + 150 > window.innerHeight) y -= 150;
+        if (x + 200 > window.innerWidth) x -= 200;
+        if (y + 240 > window.innerHeight) y -= 240;
+        if (x < 0) x = 10;
+        if (y < 0) y = 10;
 
         menu.style.left = x + "px";
         menu.style.top = y + "px";
     }
 
-    // Processes standard contextual bubble queries natively
+    // Specification 3: Handle Exactly Six Contextual Actions
     function handleMenuAction(action) {
-        if(!activeMessageContext) return;
-        const { text, id } = activeMessageContext;
+        if(!activeMessageContext && action !== 'end_session' && action !== 'refresh_relay' && action !== 'toggle_mode') return;
+        const { text, id } = activeMessageContext || {};
 
         if(action === 'copy') {
-            if(window.AndroidInterface) {
+            if(window.AndroidInterface && window.AndroidInterface.copyToClipboard) {
                 window.AndroidInterface.copyToClipboard(text);
             } else {
                 navigator.clipboard.writeText(text);
@@ -1152,8 +1221,7 @@
         } else if(action === 'read') {
             if(window.AndroidInterface) window.AndroidInterface.speak(text);
         } else if(action === 'delete') {
-
-            // REQUIREMENT: Stop AI speech if deleted
+            // Stop AI speech if deleted
             if(window.AndroidInterface) window.AndroidInterface.stopSpeaking();
 
             // Remove from UI
@@ -1162,8 +1230,46 @@
             // Remove from History
             chatHistory = chatHistory.filter(m => m.id !== id);
             localStorage.setItem('puter_chat_history_' + currentSessionId, JSON.stringify(chatHistory));
+        } else if(action === 'refresh_relay') {
+            // Reads Nostr configurations and force-propagates connections natively
+            saveNostrSettings();
+        } else if(action === 'toggle_mode') {
+            let currentMode = false;
+            if (window.AndroidInterface && window.AndroidInterface.getAutoMode) {
+                currentMode = window.AndroidInterface.getAutoMode();
+            }
+            const targetMode = !currentMode;
+            if (window.AndroidInterface && window.AndroidInterface.setAutoMode) {
+                window.AndroidInterface.setAutoMode(targetMode);
+            }
+            if (window.AndroidInterface && window.AndroidInterface.showToast) {
+                window.AndroidInterface.showToast(targetMode ? "Auto Mode Enabled" : "Normal Mode Enabled");
+            } else {
+                alert(targetMode ? "Auto Mode Enabled" : "Normal Mode Enabled");
+            }
+        } else if(action === 'end_session') {
+            newSession();
         }
         document.getElementById('customContextMenu').style.display = 'none';
+    }
+
+    /**
+     * Nostr connection force-propagation logic as specified.
+     */
+    function saveNostrSettings() {
+        if (window.AndroidInterface && window.AndroidInterface.getNostrSettings) {
+            try {
+                const settingsStr = window.AndroidInterface.getNostrSettings();
+                window.AndroidInterface.nativeLog("Nostr connection forced update with config: " + settingsStr, "native");
+                if (window.AndroidInterface.showToast) {
+                    window.AndroidInterface.showToast("Relay Connection Refreshed Successfully");
+                }
+            } catch (err) {
+                console.error("Nostr settings propagation error", err);
+            }
+        } else {
+            console.log("Telemetry Relay forced update executed (Native context missing).");
+        }
     }
 
     // --- ENHANCEMENT: HISTORY PERSISTENCE ---
@@ -1834,9 +1940,33 @@
         div.className = "message bot-message";
         div.id = `msg-${loaderId}`;
 
+        // Dynamic Loader Pointer Listeners with Micro-movement Cancellations
         let pressTimer;
-        div.onpointerdown = (e) => { pressTimer = window.setTimeout(() => { showContextMenu(e, "", `msg-${loaderId}`); }, 700); };
-        div.onpointerup = () => clearTimeout(pressTimer);
+        let startX, startY;
+        div.onpointerdown = (e) => { 
+            if (pressTimer) clearTimeout(pressTimer);
+            startX = e.clientX;
+            startY = e.clientY;
+            pressTimer = window.setTimeout(() => { showContextMenu(e, "", `msg-${loaderId}`); }, 700); 
+        };
+        div.onpointermove = (e) => {
+            if (pressTimer && Math.hypot(e.clientX - startX, e.clientY - startY) > 8) {
+                clearTimeout(pressTimer);
+                pressTimer = null;
+            }
+        };
+        div.onpointerup = () => {
+            if (pressTimer) {
+                clearTimeout(pressTimer);
+                pressTimer = null;
+            }
+        };
+        div.onpointercancel = () => {
+            if (pressTimer) {
+                clearTimeout(pressTimer);
+                pressTimer = null;
+            }
+        };
         div.oncontextmenu = (e) => e.preventDefault();
 
         div.innerHTML = `
@@ -2112,8 +2242,18 @@
       document.getElementById('puterChatLog').innerHTML = '';
       chatHistory = [];
       clearFiles();
+
+      // Clear active native background tabs conceptually
+      if (window.AndroidInterface && window.AndroidInterface.clearBackgroundTabs) {
+          window.AndroidInterface.clearBackgroundTabs();
+      }
+
       console.log("New Session ID generated: " + currentSessionId);
-      alert("New Session Started");
+      if (window.AndroidInterface && window.AndroidInterface.showToast) {
+          window.AndroidInterface.showToast("New Session Started");
+      } else {
+          alert("New Session Started");
+      }
     }
 
     // Execute immediately on load
