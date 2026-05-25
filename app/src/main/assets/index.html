@@ -464,6 +464,28 @@
         return Array.from(bytes).map(b => b.toString(16).padStart(2, '0')).join('');
     }
 
+    /* --- NATIVE SCRIPT TRANSLATION DICTIONARY FOR LANGUAGE COMPLIANCE --- */
+    function getNativeLanguageName(lang) {
+        if (!lang) return "";
+        const normalized = lang.trim().toLowerCase();
+        const mapping = {
+            'malayalam': 'മലയാളം (Malayalam)',
+            'tamil': 'தமிழ் (Tamil)',
+            'hindi': 'हिन्दी (Hindi)',
+            'telugu': 'తెలుగు (Telugu)',
+            'kannada': 'ಕನ್ನಡ (Kannada)',
+            'spanish': 'Español (Spanish)',
+            'french': 'Français (French)',
+            'german': 'Deutsch (German)',
+            'russian': 'Русский (Russian)',
+            'japanese': '日本語 (Japanese)',
+            'chinese': '中文 (Chinese)',
+            'arabic': 'العربية (Arabic)',
+            'bengali': 'বাংলা (Bengali)'
+        };
+        return mapping[normalized] || lang;
+    }
+
     /* --- ENHANCEMENT: MARKED CONFIGURATION & CUSTOM RENDERER --- */
     const renderer = new marked.Renderer();
     renderer.code = function(code, language) {
@@ -968,31 +990,21 @@
           }
       });
 
-      // FIX: CRITICAL PAYLOAD STRUCTURE FOR SDK
-      let finalPayload;
-      if (contentBlocks.length === 1 && contentBlocks[0].type === "text") {
-          finalPayload = text; // Keep simple text simple
-      } else {
-          finalPayload = [{
-              role: 'user',
-              content: contentBlocks
-          }];
+      // =========================================================================
+      // OPEN-TEXT LANGUAGE MEMORY SYSTEM SYSTEM DIRECTIVE INJECTION (Specification 1)
+      // =========================================================================
+      const targetLanguage = localStorage.getItem("puter_target_language") || "";
+      const nativeLanguage = getNativeLanguageName(targetLanguage);
+      let activeSystemMessage = customInstruction;
+      if (targetLanguage) {
+          // Specification 1: Strong language enforcement prompts to force Gemini replies natively (Malayalam/Tamil)
+          const systemDirective = `IMPORTANT:\nALWAYS respond ONLY in ${nativeLanguage || targetLanguage}.\n\nNEVER use English.\n\nEven if user speaks English, translate internally and answer only in ${nativeLanguage || targetLanguage}. Do not transliterate. Write strictly in the native script characters of the language.`;
+          activeSystemMessage = activeSystemMessage ? `${activeSystemMessage}\n\n${systemDirective}` : systemDirective;
       }
 
       const loader = document.getElementById('ecgLoader');
       loader.style.display = 'flex';
       window.scrollTo(0, document.body.scrollHeight);
-
-      // =========================================================================
-      // OPEN-TEXT LANGUAGE MEMORY SYSTEM SYSTEM DIRECTIVE INJECTION (Specification 1)
-      // =========================================================================
-      const targetLanguage = localStorage.getItem("puter_target_language") || "";
-      let activeSystemMessage = customInstruction;
-      if (targetLanguage) {
-          // Specification 1: Strong language enforcement prompts to force Gemini replies natively (Malayalam/Tamil)
-          const systemDirective = `IMPORTANT:\nALWAYS respond ONLY in ${targetLanguage}.\n\nNEVER use English.\n\nEven if user speaks English, translate internally and answer only in ${targetLanguage}.`;
-          activeSystemMessage = activeSystemMessage ? `${activeSystemMessage}\n\n${systemDirective}` : systemDirective;
-      }
 
       try {
         console.log("Requesting AI Response for model: " + model);
@@ -1012,8 +1024,19 @@
             };
             const mappedRatioObject = ratioMap[aspectRatio] || { w: 1, h: 1 };
 
+            // Compatibility construction for image generations
+            let imagePayload;
+            if (contentBlocks.length === 1 && contentBlocks[0].type === "text") {
+                imagePayload = text;
+            } else {
+                imagePayload = [{
+                    role: 'user',
+                    content: contentBlocks
+                }];
+            }
+
             // COMPATIBILITY OPTIMIZATION: Ensure the parameters support legacy and modern multimodal chat image models
-            const response = await puter.ai.chat(finalPayload, {
+            const response = await puter.ai.chat(imagePayload, {
                 model: model,
                 system_message: activeSystemMessage,
                 stream: false,
@@ -1042,8 +1065,44 @@
             else appendChat("Bot", "Error: Recognized image data not found in response.");
 
         } else {
+            // Conversational payload built using first-class system roles to force strict language execution
+            const messagesArray = [];
+            if (activeSystemMessage) {
+                messagesArray.push({
+                    role: 'system',
+                    content: activeSystemMessage
+                });
+            }
+
+            // Injects local target scripts at context tail end to prevent English fallback
+            let finalUserContent = text;
+            if (contentBlocks.length > 0) {
+                if (targetLanguage) {
+                    const scriptName = nativeLanguage || targetLanguage;
+                    let textBlock = contentBlocks.find(b => b.type === "text");
+                    if (textBlock) {
+                        textBlock.text += `\n\n[System Rule: Respond strictly in ${scriptName} script]`;
+                    } else {
+                        contentBlocks.push({ type: "text", text: `[System Rule: Respond strictly in ${scriptName} script]` });
+                    }
+                }
+                messagesArray.push({
+                    role: 'user',
+                    content: contentBlocks
+                });
+            } else {
+                if (targetLanguage) {
+                    const scriptName = nativeLanguage || targetLanguage;
+                    finalUserContent += `\n\n[System Rule: Respond strictly in ${scriptName} script]`;
+                }
+                messagesArray.push({
+                    role: 'user',
+                    content: finalUserContent
+                });
+            }
+
             // --- ENHANCEMENT: LIVELY STREAMING GENERATION ---
-            const streamResp = await puter.ai.chat(finalPayload, {model: model, system_message: activeSystemMessage, stream: true});
+            const streamResp = await puter.ai.chat(messagesArray, {model: model, stream: true});
 
             let fullBotText = "";
             const msgId = "msg-" + Date.now() + "_" + Math.floor(Math.random() * 1000000);
@@ -1814,9 +1873,28 @@
     async function executeStandardFallback(queryText, loaderId) {
         const activeModel = globalSelectedModel;
         try {
-            const streamResp = await puter.ai.chat(queryText, {
+            const targetLanguage = localStorage.getItem("puter_target_language") || "";
+            const nativeLanguage = getNativeLanguageName(targetLanguage);
+            let activeSystemMessage = customInstruction;
+            if (targetLanguage) {
+                const systemDirective = `IMPORTANT:\nALWAYS respond ONLY in ${nativeLanguage || targetLanguage}.\n\nNEVER use English.\n\nEven if user speaks English, translate internally and answer only in ${nativeLanguage || targetLanguage}. Do not transliterate. Write strictly in the native script characters of the language.`;
+                activeSystemMessage = activeSystemMessage ? `${activeSystemMessage}\n\n${systemDirective}` : systemDirective;
+            }
+
+            let finalQueryText = queryText;
+            if (targetLanguage) {
+                const scriptName = nativeLanguage || targetLanguage;
+                finalQueryText += `\n\n[System Rule: Respond strictly in ${scriptName} script]`;
+            }
+
+            const messagesArray = [];
+            if (activeSystemMessage) {
+                messagesArray.push({ role: 'system', content: activeSystemMessage });
+            }
+            messagesArray.push({ role: 'user', content: finalQueryText });
+
+            const streamResp = await puter.ai.chat(messagesArray, {
                 model: activeModel,
-                system_message: customInstruction,
                 stream: true
             });
 
@@ -1900,13 +1978,23 @@
 
         // Specification 1: Language Constraint dynamic rule integration inside grounding constraints checklist
         const targetLanguage = localStorage.getItem("puter_target_language") || "";
+        const nativeLanguage = getNativeLanguageName(targetLanguage);
         if (targetLanguage) {
-            groundingPrompt += `- The Language Constraint:\n  IMPORTANT:\n  ALWAYS respond ONLY in ${targetLanguage}.\n  NEVER use English.\n  Even if user speaks English, translate internally and answer only in ${targetLanguage}.\n`;
+            groundingPrompt += `- The Language Constraint:\n  IMPORTANT:\n  ALWAYS respond ONLY in ${nativeLanguage || targetLanguage}.\n  NEVER use English.\n  Even if user speaks English, translate internally and answer only in ${nativeLanguage || targetLanguage}.\n  Do not transliterate. Write strictly in the native script characters of the language.\n`;
         }
         groundingPrompt += "\n";
 
-        // Layer 4: Original User Query
-        groundingPrompt += `USER QUESTION: ${queryText}`;
+        let finalUserQueryText = `USER QUESTION: ${queryText}`;
+        if (targetLanguage) {
+            const scriptName = nativeLanguage || targetLanguage;
+            finalUserQueryText += `\n\n[System Rule: Respond strictly in ${scriptName} script]`;
+        }
+
+        // Encapsulate structured system prompt and anchored user query into roles arrays
+        const messagesArray = [
+            { role: "system", content: groundingPrompt },
+            { role: "user", content: finalUserQueryText }
+        ];
 
         const activeModel = globalSelectedModel;
         try {
@@ -1916,10 +2004,9 @@
                 window.AndroidInterface.nativeLog("Delivering grounding payload to Puter completions pipeline. Model: " + activeModel, "native");
             }
 
-            // Pass entire context grounding prompt directly to Puter SDK chat completions
-            const streamResp = await puter.ai.chat(groundingPrompt, {
+            // Standardize RAG output as messages array to avoid system-message proxy omissions
+            const streamResp = await puter.ai.chat(messagesArray, {
                 model: activeModel,
-                system_message: "You are an up-to-date conversational AI assistant.",
                 stream: true
             });
 
