@@ -559,11 +559,11 @@
     function addConsoleLog(message, type = "info") {
         const consoleBody = document.getElementById("consoleBody");
         if (!consoleBody) return;
-        
+
         const now = new Date();
         const timestamp = now.toTimeString().split(' ')[0]; // Returns formatted HH:MM:SS string
         let prefix = `[${timestamp}] `;
-        
+
         if (type === "error") {
             prefix += "[ERROR] ";
         } else if (type === "warning") {
@@ -589,7 +589,7 @@
         } else {
             logLine.style.color = "#00ff00";
         }
-        
+
         logLine.innerText = prefix + message;
         consoleBody.appendChild(logLine);
         consoleBody.scrollTop = consoleBody.scrollHeight;
@@ -708,7 +708,7 @@
         if (separatorIndex === -1) throw new Error("Invalid Bech32 key structural configuration.");
         const hrp = bechString.slice(0, separatorIndex);
         if (hrp !== "npub" && hrp !== "nsec") throw new Error("Key structure prefix is not npub or nsec.");
-        
+
         const dataString = bechString.slice(separatorIndex + 1);
         const data = [];
         for (let i = 0; i < dataString.length; i++) {
@@ -716,13 +716,13 @@
             if (charIndex === -1) throw new Error("Bech32 contains prohibited structures.");
             data.push(charIndex);
         }
-        
+
         const values = data.slice(0, -6); // Strip 6-character checksum
         let accumulator = 0;
         let bits = 0;
         const bytes = [];
         const maxAccumulator = (1 << 12) - 1;
-        
+
         for (let i = 0; i < values.length; i++) {
             accumulator = ((accumulator << 5) | values[i]) & maxAccumulator;
             bits += 5;
@@ -745,10 +745,10 @@
             if (settings) {
                 const pubKey = settings.public_key || "";
                 const relayUrl = settings.relay_url || "wss://relay.damus.io";
-                
+
                 document.getElementById("extensionPublicKey").value = pubKey;
                 document.getElementById("nostrRelaySelect").value = relayUrl;
-                
+
                 addConsoleLog("Settings updated in UI. Extension key: " + pubKey.substring(0, 15) + "...", "info");
                 window.AndroidInterface.nativeLog("browser.html: Synchronized handshake configuration UI.", "info");
             }
@@ -766,7 +766,7 @@
         try {
             const pubKey = document.getElementById("extensionPublicKey").value.trim();
             const relayUrl = document.getElementById("nostrRelaySelect").value;
-            
+
             window.AndroidInterface.saveNostrSettings(pubKey, relayUrl);
             addConsoleLog("Settings auto-saved. Extension key: " + pubKey.substring(0, 15) + "...", "info");
             window.AndroidInterface.nativeLog("browser.html: Auto-saved handshakes to SharedPreferences.", "info");
@@ -870,7 +870,7 @@
             nostrSocket.onmessage = (msgEvent) => {
                 try {
                     const message = JSON.parse(msgEvent.data);
-                    
+
                     // Route notice rejections natively
                     if (Array.isArray(message) && message[0] === "NOTICE") {
                         const rejectDetails = `Relay Notice from ${relayUrl}: ${message[1]}`;
@@ -901,7 +901,7 @@
                 updateStatusUI("disconnected");
                 addConsoleLog("Nostr socket connection closed. Code: " + closeEvent.code + " | Clean: " + closeEvent.wasClean, "warning");
                 window.AndroidInterface.nativeLog("Inbox Client: Connection closed.", "info");
-                
+
                 // Track unexpected connection terminations natively
                 if (!closeEvent.wasClean && !connectionForcedClosed) {
                     const details = `Disconnection from ${relayUrl}. Code: ${closeEvent.code} | Reason: ${closeEvent.reason || 'None'}`;
@@ -979,7 +979,7 @@
 
                 // 1. Identify category mapping metadata
                 const isUniversal = (item.hierarchy && item.hierarchy.main_category === "Universal Scrape");
-                
+
                 // 2. Extracts labeling details (extracts title/model)
                 let label = "";
                 let subLabel = "";
@@ -996,7 +996,7 @@
                 const card = document.createElement("div");
                 card.className = "tiny-box";
                 card.id = `box_${event.id}`;
-                
+
                 card.innerHTML = `
                     <div class="tiny-box-content">
                         <span class="tiny-box-title">${label}</span>
@@ -1008,7 +1008,7 @@
                 // 4. Save logic on click: Passes JSON to native bridge
                 card.onclick = () => {
                     const trackingId = isUniversal ? (item.specifications.title || "UNI_" + Date.now()) : (item.specifications.asin || "AMZN_" + Date.now());
-                    
+
                     // Transform to Puter database structure
                     const databaseStructure = {
                         type: isUniversal ? "universal_web" : "amazon_catalog",
@@ -1026,7 +1026,7 @@
                     addConsoleLog("Saving scraped item to local database. ID: " + trackingId, "system");
                     window.AndroidInterface.addScrapedProduct(trackingId, JSON.stringify(databaseStructure));
                     window.AndroidInterface.showToast(`Saved to history: ${label}`);
-                    
+
                     // Delete card visually after save
                     card.style.transform = "translateX(50px)";
                     card.style.opacity = "0";
