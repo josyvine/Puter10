@@ -260,6 +260,8 @@ public class QueryWatcherService extends Service {
 
     /**
      * Fires an explicit intent to spawn Kiwi Browser headlessly inside the device's task stack.
+     * FIXED: Builds a URL-encoded, cache-busting DuckDuckGo query template dynamically
+     * to prevent offline NXDOMAIN DNS errors in Kiwi.
      */
     private void triggerBackgroundExploration(String queryText) {
         try {
@@ -275,13 +277,19 @@ public class QueryWatcherService extends Service {
             Log.d(TAG, "Waking up Kiwi Browser silently to run the background RAG crawl loop.");
             lastWakeUpTime = currentTime; // Update the last wake-up mark
             
-            // REQUIREMENT: Target the local browser portal URL to wake up the extension cleanly.
-            // Opening browser.html directly triggers the extension's background sockets to start.
-            String targetUrl = AppConstants.LOCAL_BROWSER_URL;
+            // Defensive local assignment to prevent temporary compilation conflicts
+            String ddgBaseUrl = "https://html.duckduckgo.com/html/?q=";
+            String encodedQuery;
+            try {
+                encodedQuery = URLEncoder.encode(queryText, "UTF-8");
+            } catch (Exception e) {
+                encodedQuery = URLEncoder.encode(queryText);
+            }
+            String targetUrl = ddgBaseUrl + encodedQuery + "&t=" + currentTime;
 
             Intent intent = new Intent(Intent.ACTION_VIEW);
             intent.setData(Uri.parse(targetUrl));
-            intent.setPackage("com.kiwibrowser.browser"); // Target Kiwi Browser package explicitly
+            intent.setPackage("com.kiwibrowser.browser"); // Target Kiwi Browser explicitly
             intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK); // Allow separate task stack instantiation
 
             // Trigger background activity activation
