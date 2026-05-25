@@ -48,9 +48,9 @@ public class AppConstants {
     public static final String LOCAL_INDEX_URL = "https://appassets.androidplatform.net/assets/index.html";
     
     // NEW: Local asset path for the manual browser frontend.
-    // FIXED: Bypasses the virtual domain assets to point directly to the public DuckDuckGo HTML template
-    // to prevent DNS NXDOMAIN errors inside external browsers.
-    public static final String LOCAL_BROWSER_URL = "https://html.duckduckgo.com/html/?q=";
+    // RESTORED: Points back to the local assets portal view to enable your custom browser layout
+    // inside the app WebView.
+    public static final String LOCAL_BROWSER_URL = "https://appassets.androidplatform.net/assets/browser.html";
 
     // Markers for detecting successful SDK authentication redirects
     public static final String AUTH_SUCCESS_MARKER = "signed_in=true";
