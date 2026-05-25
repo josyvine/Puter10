@@ -669,7 +669,7 @@
 
         // SLIDER 2: BY PARENT
         html += `<div class="acc-section">
-                    <div class="acc-header" onclick="toggleAcc('acc-parents')">By Parent <span class="material-symbols-outlined" style="font-size:16px;">expand_more</span></div>
+                    <div class="acc-header" onclick="toggleAcc('acc-parents')">By Parent <span class="material-symbols-outlined" style="font-size:18px;">expand_more</span></div>
                     <div id="acc-parents" class="acc-content">`;
         for(const provider in providers) {
             let pId = 'prov-' + provider.replace(/[^a-zA-Z0-9]/g, '-');
@@ -680,6 +680,7 @@
                 const modelStr = JSON.stringify(m).replace(/'/g, "&apos;");
                 html += `<div class="model-item" onclick='selectModel("${m.id}", "${safeName}", ${modelStr})'>${m.name || m.id}</div>`;
             });
+            html += `</div>`; // FIXED: Added missing closing div to prevent accordion nested rendering bug
             backgroundWs = null;
         }
         html += `   </div></div>`;
@@ -1934,7 +1935,7 @@
 
                             if (matched.length > 0) {
                                 window.AndroidInterface.nativeLog("Poller fallback matching payload processed. Terminating poll loops.", "native");
-                                
+
                                 clearInterval(pollInterval);
                                 if (wakeupGuardTimeout) clearTimeout(wakeupGuardTimeout);
                                 tempSocket.close();
