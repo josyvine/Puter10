@@ -10,11 +10,11 @@
   <!-- SDK loaded without async to ensure availability for sync initialization -->
   <script src="https://js.puter.com/v2/"></script>
   <script src="https://cdn.jsdelivr.net/npm/marked@4.0.0/marked.min.js"></script>
-  
+
   <!-- ENHANCEMENT: Highlight.js for Syntax Coloring -->
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.7.0/styles/github-dark.min.css">
   <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.7.0/highlight.min.js"></script>
-  
+
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" />
   <style>
     * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
@@ -49,7 +49,7 @@
 
     /* Session List styling inside dropdown */
     .session-divider { background: #f9f9f9; font-weight: bold; color: #888; font-size: 12px; padding: 5px 20px; cursor: default; border-top: 1px solid #eee; }
-    
+
     /* NEW: Usage Details styling in dropdown */
     .usage-divider { background: #e8f0fe; font-weight: bold; color: #1a73e8; font-size: 11px; padding: 10px 20px; cursor: default; border-top: 1px solid #d1e3ff; line-height: 1.4; }
     .usage-val { color: #333; font-family: monospace; display: block; margin-top: 2px; }
@@ -251,10 +251,10 @@
       <li onclick="newSession()">New Session</li>
       <li id="toggleSettingsBtn" onclick="toggleSettingsUI()">Hide Settings</li>
       <li onclick="openModal('helpModal')">Help</li>
-      
+
       <!-- NEW BROWSER TAB TRANSITION TRIGGERS -->
       <li onclick="window.AndroidInterface.loadLocalUrl('browser.html')">Browse Website</li>
-      
+
       <!-- FIX #2: PERSISTENT USAGE TELEMETRY UI -->
       <li id="usageDisplay" class="usage-divider">
         GENERATION USAGE
@@ -266,7 +266,7 @@
 
       <!-- REQUIREMENT #3: DYNAMIC SESSION LIST INJECTED HERE -->
       <div id="dynamicSessions"></div>
-      
+
       <!-- NEW "WEB SCRAP" SUB-SECTION DYNAMICALLY INJECTED HERE -->
       <div id="dynamicScrapedItems"></div>
 
@@ -423,7 +423,7 @@
         if (separatorIndex === -1) throw new Error("Invalid Bech32 key structure configuration.");
         const hrp = bechString.slice(0, separatorIndex);
         if (hrp !== "npub" && hrp !== "nsec") throw new Error("Key structure prefix is not npub or nsec.");
-        
+
         const dataString = bechString.slice(separatorIndex + 1);
         const data = [];
         for (let i = 0; i < dataString.length; i++) {
@@ -431,13 +431,13 @@
             if (charIndex === -1) throw new Error("Bech32 contains prohibited structures.");
             data.push(charIndex);
         }
-        
+
         const values = data.slice(0, -6); // Strip 6-character checksum
         let accumulator = 0;
         let bits = 0;
         const bytes = [];
         const maxAccumulator = (1 << 12) - 1;
-        
+
         for (let i = 0; i < values.length; i++) {
             accumulator = ((accumulator << 5) | values[i]) & maxAccumulator;
             bits += 5;
@@ -535,12 +535,12 @@
     function handleInput() {
       const input = document.getElementById('puterChatInput');
       const container = document.getElementById('puterSearchBarContainer');
-      
+
       // Auto-Expansion Logic
       input.style.height = '44px'; // Reset to base height to calculate
       const newHeight = Math.min(input.scrollHeight, 180);
       input.style.height = newHeight + 'px';
-      
+
       // Overflow toggle
       if (input.scrollHeight > 180) {
           input.style.overflowY = 'auto';
@@ -598,10 +598,10 @@
         globalSelectedModel = id;
         globalModelObject = modelObj;
         console.log("Model Selected: " + id);
-        
+
         // Update the UI trigger text to show what was selected
         document.getElementById('selectedModelText').textContent = name || id;
-        
+
         // --- IMAGE MODEL UI LOGIC ---
         const ratioContainer = document.getElementById("aspectRatioContainer");
         if (modelObj && modelObj.categories && modelObj.categories.includes("image_generation")) {
@@ -857,7 +857,7 @@
     function renderImage(src){
        const log = document.getElementById('puterChatLog');
        const msgId = "img-" + Date.now();
-       
+
        const div = document.createElement("div");
        div.className = "message bot-message";
        div.id = msgId;
@@ -872,11 +872,11 @@
           </div>
        `;
        log.appendChild(div);
-       
+
        // Persist to history containing src Base64
        chatHistory.push({sender: "Bot", text: "[Image Generated]", type: "image", src: src, id: msgId});
        localStorage.setItem('puter_chat_history_' + currentSessionId, JSON.stringify(chatHistory));
-       
+
        window.scrollTo(0, document.body.scrollHeight);
     }
 
@@ -923,7 +923,7 @@
 
       // RENDER USER BUBBLE WITH THUMBNAILS (No extra bracket text added to display)
       appendChat("User", text, false, messageFiles);
-      
+
       input.value = "";
       handleInput(); 
 
@@ -971,7 +971,7 @@
 
       try {
         console.log("Requesting AI Response for model: " + model);
-        
+
         // --- BRANCHED LOGIC: IMAGE VS TEXT ---
         if(isImageModel) {
             const aspectRatio = document.getElementById("aspectRatioSelect").value;
@@ -1019,7 +1019,7 @@
         } else {
             // --- ENHANCEMENT: LIVELY STREAMING GENERATION ---
             const streamResp = await puter.ai.chat(finalPayload, {model: model, system_message: customInstruction, stream: true});
-            
+
             let fullBotText = "";
             const msgId = "msg-" + Date.now() + "_" + Math.floor(Math.random() * 1000000);
             const log = document.getElementById('puterChatLog');
@@ -1277,7 +1277,7 @@
             if (obj.type === "universal_web") {
                 const title = obj.metadata?.title || "Universal Web Article";
                 const url = obj.metadata?.url || "";
-                
+
                 markdown += `### ${title}\n`;
                 if (url) markdown += `**Source:** ${url}\n\n`;
                 if (obj.content) {
@@ -1589,13 +1589,13 @@
                 updateAuthUI();
             } else {
                 console.log("Triggering Puter SDK SignIn popup...");
-                
+
                 /* FIX: CLEAR USAGE STATS ON NEW SIGN IN AS REQUESTED */
                 sessionTotalTokens = 0;
                 sessionTotalCredits = 0;
                 localStorage.removeItem('puter_persistent_tokens');
                 localStorage.removeItem('puter_persistent_credits');
-                
+
                 await puter.auth.signIn(); 
             }
         } catch (error) {
