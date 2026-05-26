@@ -292,6 +292,35 @@
         <div id="nostrNsecDisplay" style="font-family: monospace; font-size: 11px; word-break: break-all; margin: 4px 0;">Loading...</div>
         <button class="btn-primary" onclick="copyNostrKey('priv')" style="padding: 6px 12px; font-size: 11px; margin-top: 4px; border-radius: 4px; border:none; color:white; cursor:pointer; width: 100%;">Copy nsec</button>
       </li>
+
+      <!-- =========================================================================
+       * NEW: EXPANDABLE NATIVE GEMINI ACCORDION SETTINGS PANEL
+       * ========================================================================= -->
+      <li class="session-divider" id="geminiMenuDivider" style="background:#e8f0fe; color:#1a73e8; display:none;">Gemini Configuration</li>
+      <li id="geminiToggleDrawerHeader" onclick="toggleGeminiDrawer()" style="display:none; font-weight:bold; cursor:pointer; justify-content:space-between; align-items:center;">
+        <span>Gemini Settings</span>
+        <span class="material-symbols-outlined" id="geminiDrawerChevron">expand_more</span>
+      </li>
+      <div id="geminiSettingsDrawer" style="display:none; padding:10px 20px; background:#f9f9f9; border-bottom:1px solid #eee; flex-direction:column; gap:10px; box-sizing:border-box;">
+        <div style="display:flex; flex-direction:column; gap:4px;">
+          <label style="font-size:11px; font-weight:bold; color:#555;">API Access Key</label>
+          <input type="password" id="geminiApiKeyInput" placeholder="Paste Gemini API Key..." onchange="handleGeminiApiKeyChange(this.value)" style="width:100%; padding:8px 12px; border:1px solid #ccc; border-radius:8px; font-size:13px; outline:none; background:#fff; box-sizing:border-box;" />
+        </div>
+        <div style="display:flex; align-items:center; justify-content:space-between; margin-top:5px;">
+          <label style="font-size:11px; font-weight:bold; color:#555; cursor:pointer; display:flex; align-items:center; gap:6px;">
+            <input type="checkbox" id="geminiStreamToggle" onchange="handleGeminiStreamToggle(this.checked)" checked style="width:16px; height:16px;" />
+            <span>Enable Streaming</span>
+          </label>
+        </div>
+        <div style="display:flex; flex-direction:column; gap:4px; margin-top:5px;">
+          <label style="font-size:11px; font-weight:bold; color:#555;">Grounding Mode</label>
+          <select id="geminiGroundingSelect" onchange="handleGeminiGroundingChange(this.value)" style="width:100%; padding:8px 12px; border:1px solid #ccc; border-radius:8px; font-size:13px; outline:none; background:#fff; box-sizing:border-box;">
+            <option value="none">None (Standard)</option>
+            <option value="search">Google Search</option>
+            <option value="maps">Google Maps</option>
+          </select>
+        </div>
+      </div>
     </ul>
   </header>
 
@@ -364,13 +393,14 @@
     </div>
   </div>
 
-  <!-- ENHANCEMENT: DYNAMIC CONTEXT-AWARE CONTEXT MENU (SIX ACTIVE OPTIONS) -->
+  <!-- ENHANCEMENT: DYNAMIC CONTEXT-AWARE CONTEXT MENU (SEVEN ACTIVE OPTIONS) -->
   <ul id="customContextMenu" class="context-menu">
       <li onclick="handleMenuAction('copy')"><span class="material-symbols-outlined">content_copy</span> Copy Chat</li>
       <li onclick="handleMenuAction('read')"><span class="material-symbols-outlined">volume_up</span> Read Aloud</li>
       <li onclick="handleMenuAction('delete')" class="delete-action"><span class="material-symbols-outlined">delete</span> Delete Chat</li>
       <li onclick="handleMenuAction('refresh_relay')"><span class="material-symbols-outlined">sync</span> Refresh Relay</li>
       <li id="menuToggleModeOption" onclick="handleMenuAction('toggle_mode')"><!-- Dynamically evaluated toggle button --></li>
+      <li id="menuToggleProviderOption" onclick="handleMenuAction('toggle_provider')"><!-- puter / gemini toggle --></li>
       <li onclick="handleMenuAction('end_session')"><span class="material-symbols-outlined">power_settings_new</span> End Session</li>
   </ul>
 
@@ -471,7 +501,7 @@
         const mapping = {
             'malayalam': 'മലയാളം (Malayalam)',
             'tamil': 'தமிழ் (Tamil)',
-            'hindi': 'हिन्दी (Hindi)',
+            'hindi': 'ഹിन्दी (Hindi)',
             'telugu': 'తెలుగు (Telugu)',
             'kannada': 'ಕನ್ನಡ (Kannada)',
             'spanish': 'Español (Spanish)',
@@ -564,6 +594,9 @@
     let chatHistory = JSON.parse(localStorage.getItem('puter_chat_history_' + currentSessionId) || "[]");
     let activeMessageContext = null; 
 
+    /* --- NEW FEATURE: DUAL-PROVIDER MULTIPLEX ENGINE --- */
+    let activeProvider = "Puter";
+
     /* FIX #1: AUTO-EXPANDING TEXTAREA LOGIC */
     function handleInput() {
       const input = document.getElementById('puterChatInput');
@@ -610,6 +643,7 @@
       renderDynamicSessionList(); 
       renderDynamicScrapedList(); // NEW: Pulls and displays newly indexed crawled files
       loadNostrIdentityInUI(); // Handshake: Load nsec/npub keys dynamically
+      syncGeminiUIState(); // NEW: Auto-sync settings drawer state natively
       document.getElementById('puterDropdownMenu').classList.toggle('show');
     };
 
@@ -643,6 +677,61 @@
             ratioContainer.style.display = "block";
         } else {
             ratioContainer.style.display = "none";
+        }
+
+        // =========================================================================
+        // NEW: ACTIVE GEMINI CAPABILITY & VERIFICATION GATES
+        // =========================================================================
+        if (activeProvider === "Gemini") {
+            const streamToggleEl = document.getElementById("geminiStreamToggle");
+            const groundingSelectEl = document.getElementById("geminiGroundingSelect");
+
+            // 1. Streaming support gate - disables streaming on binary text-to-speech models
+            const supportsStreaming = modelObj && modelObj.categories && !modelObj.id.includes("tts") && !modelObj.id.includes("live-preview");
+            if (supportsStreaming) {
+                streamToggleEl.disabled = false;
+                streamToggleEl.parentElement.style.opacity = "1";
+            } else {
+                streamToggleEl.checked = false;
+                if (window.AndroidInterface && window.AndroidInterface.setGeminiStreaming) {
+                    window.AndroidInterface.setGeminiStreaming(false);
+                }
+                streamToggleEl.disabled = true;
+                streamToggleEl.parentElement.style.opacity = "0.5";
+            }
+
+            // 2. Grounding tools support gate (Flash/Pro/Gemma-4 models)
+            const supportsGrounding = modelObj && modelObj.categories && 
+                (modelObj.id.includes("flash") || modelObj.id.includes("gemma-4") || modelObj.id.includes("pro"));
+            
+            // Gemma models strictly block Google Maps grounding
+            const supportsMaps = supportsGrounding && !modelObj.id.includes("gemma");
+
+            if (supportsGrounding) {
+                groundingSelectEl.disabled = false;
+                groundingSelectEl.style.opacity = "1";
+                const mapsOption = groundingSelectEl.querySelector('option[value="maps"]');
+                if (mapsOption) {
+                    if (!supportsMaps) {
+                        mapsOption.disabled = true;
+                        if (groundingSelectEl.value === "maps") {
+                            groundingSelectEl.value = "none";
+                            if (window.AndroidInterface && window.AndroidInterface.setGeminiGrounding) {
+                                window.AndroidInterface.setGeminiGrounding("none");
+                            }
+                        }
+                    } else {
+                        mapsOption.disabled = false;
+                    }
+                }
+            } else {
+                groundingSelectEl.value = "none";
+                if (window.AndroidInterface && window.AndroidInterface.setGeminiGrounding) {
+                    window.AndroidInterface.setGeminiGrounding("none");
+                }
+                groundingSelectEl.disabled = true;
+                groundingSelectEl.style.opacity = "0.5";
+            }
         }
 
         // Close the menu
@@ -750,27 +839,37 @@
         try {
             if (!window.AndroidInterface) return;
 
-            // Check preference via bridge
-            isLiveMode = window.AndroidInterface.getModelSource();
-            document.getElementById('modelSourceToggle').textContent = isLiveMode ? "Use Local Models" : "Enable Live Models";
+            // Update expandable configurations in three-dot settings dynamically on render
+            syncGeminiUIState();
 
-            if (isLiveMode) {
-                // Try cache first
-                const cached = localStorage.getItem("puter_live_models");
-                if (cached) renderModelAccordion(JSON.parse(cached));
-
-                // Fetch fresh if authenticated
-                if (typeof puter !== 'undefined' && puter.auth.isSignedIn()) {
-                    loadLiveModels();
-                } else {
-                    document.getElementById('selectedModelText').textContent = "Sign in for Live Models";
-                }
+            if (activeProvider === "Gemini") {
+                const geminiJsonString = window.AndroidInterface.getLocalJson("gemini_models.json");
+                if (!geminiJsonString || geminiJsonString === "{}") throw new Error("Local Gemini models missing");
+                const localGeminiData = normalizeModels(JSON.parse(geminiJsonString));
+                renderModelAccordion(localGeminiData);
             } else {
-                const jsonString = window.AndroidInterface.getLocalJson("models.json");
-                if (!jsonString || jsonString === "{}") throw new Error("Local models missing");
-                // SAFETY FIX: Pass through normalization to ensure consistent rendering structure
-                const localData = normalizeModels(JSON.parse(jsonString));
-                renderModelAccordion(localData);
+                // Check preference via bridge
+                isLiveMode = window.AndroidInterface.getModelSource();
+                document.getElementById('modelSourceToggle').textContent = isLiveMode ? "Use Local Models" : "Enable Live Models";
+
+                if (isLiveMode) {
+                    // Try cache first
+                    const cached = localStorage.getItem("puter_live_models");
+                    if (cached) renderModelAccordion(JSON.parse(cached));
+
+                    // Fetch fresh if authenticated
+                    if (typeof puter !== 'undefined' && puter.auth.isSignedIn()) {
+                        loadLiveModels();
+                    } else {
+                        document.getElementById('selectedModelText').textContent = "Sign in for Live Models";
+                    }
+                } else {
+                    const jsonString = window.AndroidInterface.getLocalJson("models.json");
+                    if (!jsonString || jsonString === "{}") throw new Error("Local models missing");
+                    // SAFETY FIX: Pass through normalization to ensure consistent rendering structure
+                    const localData = normalizeModels(JSON.parse(jsonString));
+                    renderModelAccordion(localData);
+                }
             }
         } catch(e) {
             console.error("Model load failed:", e);
@@ -954,7 +1053,6 @@
           return;
       }
 
-      // Store current files for this chat turn
       const messageFiles = [...stagedFiles];
 
       // RENDER USER BUBBLE WITH THUMBNAILS (No extra bracket text added to display)
@@ -962,6 +1060,14 @@
 
       input.value = "";
       handleInput(); 
+
+      // =========================================================================
+      // NEW: DUAL-PROVIDER ROUTING MULTIPLEX BRANCH (Puter vs Gemini)
+      // =========================================================================
+      if (activeProvider === "Gemini") {
+          executeNativeGeminiSend(text, messageFiles);
+          return;
+      }
 
       // --- ENHANCEMENT: IMAGE MODEL LOGIC ---
       const isImageModel = globalModelObject?.categories?.includes("image_generation");
@@ -1177,7 +1283,6 @@
     // Preserves default behavior for text messages
     function appendChat(sender, text, isLoad = false, files = []) {
       const log = document.getElementById('puterChatLog');
-      // FIX: Remove decimal points from ID to prevent querySelector syntax error
       const msgId = Date.now() + "_" + Math.floor(Math.random() * 1000000);
 
       const div = document.createElement('div');
@@ -1268,6 +1373,16 @@
             }
         }
 
+        // Gemini State Switcher Option (Specification 2)
+        const toggleProviderLi = document.getElementById('menuToggleProviderOption');
+        if (toggleProviderLi) {
+            if (activeProvider === "Gemini") {
+                toggleProviderLi.innerHTML = `<span class="material-symbols-outlined">cloud</span> Puter Mode`;
+            } else {
+                toggleProviderLi.innerHTML = `<span class="material-symbols-outlined">robot_2</span> Gemini Mode`;
+            }
+        }
+
         menu.style.display = 'block';
 
         // Position near finger
@@ -1284,9 +1399,9 @@
         menu.style.top = y + "px";
     }
 
-    // Specification 3: Handle Exactly Six Contextual Actions
+    // Specification 3: Handle Contextual Actions
     function handleMenuAction(action) {
-        if(!activeMessageContext && action !== 'end_session' && action !== 'refresh_relay' && action !== 'toggle_mode') return;
+        if(!activeMessageContext && action !== 'end_session' && action !== 'refresh_relay' && action !== 'toggle_mode' && action !== 'toggle_provider') return;
         const { text, id } = activeMessageContext || {};
 
         if(action === 'copy') {
@@ -1326,6 +1441,14 @@
             } else {
                 alert(targetMode ? "Auto Mode Enabled" : "Normal Mode Enabled");
             }
+        } else if(action === 'toggle_provider') {
+            activeProvider = (activeProvider === "Puter") ? "Gemini" : "Puter";
+            if(window.AndroidInterface && window.AndroidInterface.setActiveProvider) {
+                window.AndroidInterface.setActiveProvider(activeProvider);
+                window.AndroidInterface.showToast("Switched active engine provider to: " + activeProvider);
+            }
+            loadModels(); // Force rebuild of dropdown list instantly based on the active JSON!
+            syncGeminiUIState(); // update visibility of Settings drawer
         } else if(action === 'end_session') {
             // Specification 3: Context Menu "End Session" Permanent Deletion
             const targetSessionId = currentSessionId;
