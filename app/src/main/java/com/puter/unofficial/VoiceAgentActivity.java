@@ -26,6 +26,7 @@ import java.util.Locale;
  * This implementation enables a continuous, hands-free conversation loop.
  * UPDATED: Optimized for Barge-in and Always-on listening during AI speech.
  * REFINED: Fixed hardware reset logic to ensure user speech is captured during barge-in.
+ * ENHANCED: Full-screen hands-free voice loop fully supports both Puter and Gemini conversational engines.
  */
 public class VoiceAgentActivity extends AppCompatActivity {
 
