@@ -39,6 +39,12 @@ public class AppConstants {
     public static final String KEY_NOSTR_RELAY_URL = "puter_nostr_relay_url";
     public static final String KEY_EXTENSION_PUBLIC_ID = "puter_extension_public_id";
 
+    // --- NEW: GEMINI INTEGRATION & STATE STORAGE PREFERENCES ---
+    public static final String KEY_ACTIVE_PROVIDER = "puter_active_provider";
+    public static final String KEY_GEMINI_API_KEY = "gemini_user_api_key";
+    public static final String KEY_GEMINI_STREAMING = "gemini_streaming_enabled";
+    public static final String KEY_GEMINI_GROUNDING = "gemini_grounding_type";
+
     // --- PUTER URLs ---
     // The main entry point for Puter.com authentication via browser redirect.
     public static final String PUTER_LOGIN_URL = "https://puter.com/login";
@@ -58,6 +64,7 @@ public class AppConstants {
 
     // --- ASSETS ---
     public static final String MODELS_JSON_FILE = "models.json";
+    public static final String GEMINI_MODELS_JSON_FILE = "gemini_models.json";
 
     // --- PERMISSION REQUEST CODES ---
     public static final int REQUEST_CODE_PERMISSIONS = 100;
