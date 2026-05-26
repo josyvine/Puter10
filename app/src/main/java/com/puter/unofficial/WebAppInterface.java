@@ -38,6 +38,7 @@ import java.util.Date; // Added for unique file naming
  * REFINED: Fixed Voice Mode leakage and Continuous Interruption logic.
  * ENHANCEMENT: Added support for multi-session deletion via native bridge.
  * UPDATED: Added on-demand wakeUpKiwi() JavascriptInterface to handle lazy wake-ups.
+ * ENHANCED: Integrated Gemini model registries, settings drawer variables, and OkHttp stream dispatchers.
  */
 public class WebAppInterface {
 
@@ -46,6 +47,7 @@ public class WebAppInterface {
     private TextToSpeech tts;
     private final SharedPreferences prefs;
     private VoiceManager voiceManager;
+    private GeminiService geminiService;
     private boolean isTtsInitialized = false;
 
     // REQUIREMENT: Logic flag to distinguish between Voice Agent mode and standard Text mode.
@@ -61,6 +63,7 @@ public class WebAppInterface {
         this.context = context;
         this.webView = webView;
         this.prefs = context.getSharedPreferences(AppConstants.PREF_NAME, Context.MODE_PRIVATE);
+        this.geminiService = new GeminiService(context, webView);
 
         // Initialize Native Android Text-To-Speech Engine (Requirement #4)
         this.tts = new TextToSpeech(context, status -> {
@@ -180,12 +183,25 @@ public class WebAppInterface {
 
     // 2. STOP TTS
     // Interrupts the AI speaker immediately.
+    // ENHANCED: Master Interruption logic halts both standard speech AND WebView-hosted custom HTML5 audio elements on barge-in.
     @JavascriptInterface
     public void stopSpeaking() {
         if (tts != null) {
             nativeLog("Stopping AI speech (Barge-in triggered)", "native");
             tts.stop();
         }
+        // Master Interruption: Safely pause and reset any running web-hosted custom binary players
+        webView.post(() -> {
+            webView.evaluateJavascript(
+                "if (window.activeCustomAudioSource) { " +
+                "    try { " +
+                "        window.activeCustomAudioSource.pause(); " +
+                "        window.activeCustomAudioSource.currentTime = 0; " +
+                "        console.log('[JAVA BRIDGE] Stopped custom WebView audio player during barge-in.'); " +
+                "    } catch(e) { console.error('[JAVA BRIDGE] Error pausing custom audio: ' + e.message); } " +
+                "}", null
+            );
+        });
     }
 
     // 3. NATIVE SPEECH RECOGNITION (Standard)
@@ -821,6 +837,68 @@ public class WebAppInterface {
         }
     }
 
+    // =========================================================================
+    // NEW: MULTI-PROVIDER TRANSITION SETTERS & GETTERS
+    // =========================================================================
+
+    @JavascriptInterface
+    public String getActiveProvider() {
+        return prefs.getString(AppConstants.KEY_ACTIVE_PROVIDER, "Puter");
+    }
+
+    @JavascriptInterface
+    public void setActiveProvider(String provider) {
+        prefs.edit().putString(AppConstants.KEY_ACTIVE_PROVIDER, provider).apply();
+        nativeLog("Active provider natively synchronized to: " + provider, "info");
+    }
+
+    @JavascriptInterface
+    public String getGeminiApiKey() {
+        return prefs.getString(AppConstants.KEY_GEMINI_API_KEY, "");
+    }
+
+    @JavascriptInterface
+    public void saveGeminiApiKey(String apiKey) {
+        prefs.edit().putString(AppConstants.KEY_GEMINI_API_KEY, apiKey).apply();
+        nativeLog("Gemini Access API key successfully updated in SharedPreferences.", "info");
+    }
+
+    @JavascriptInterface
+    public boolean getGeminiStreaming() {
+        return prefs.getBoolean(AppConstants.KEY_GEMINI_STREAMING, true);
+    }
+
+    @JavascriptInterface
+    public void setGeminiStreaming(boolean enabled) {
+        prefs.edit().putBoolean(AppConstants.KEY_GEMINI_STREAMING, enabled).apply();
+        nativeLog("Gemini streaming configuration state updated natively to: " + enabled, "info");
+    }
+
+    @JavascriptInterface
+    public String getGeminiGrounding() {
+        return prefs.getString(AppConstants.KEY_GEMINI_GROUNDING, "none");
+    }
+
+    @JavascriptInterface
+    public void setGeminiGrounding(String groundingType) {
+        prefs.edit().putString(AppConstants.KEY_GEMINI_GROUNDING, groundingType).apply();
+        nativeLog("Gemini active grounding tool state updated natively to: " + groundingType, "info");
+    }
+
+    // =========================================================================
+    // NEW: DIRECT NATIVE OKHTTP DISPATCH CONNECTION
+    // =========================================================================
+
+    @JavascriptInterface
+    public void executeGeminiCall(String modelId, String payloadJson, boolean isStream, String msgId) {
+        nativeLog("Bridge: Initiating Gemini Connection natively via GeminiService. Model: " + modelId, "native");
+        if (geminiService != null) {
+            geminiService.executeCall(modelId, payloadJson, isStream, msgId);
+        } else {
+            nativeLog("Bridge Connection Failure: GeminiService was not properly instantiated.", "error");
+        }
+    }
+
     /**
      * Cleanup resources when the Activity is destroyed.
      */
@@ -829,6 +907,9 @@ public class WebAppInterface {
         if (tts != null) {
             tts.stop();
             tts.shutdown();
+        }
+        if (geminiService != null) {
+            geminiService.shutdown();
         }
     }
 }
