@@ -503,7 +503,7 @@
             'tamil': 'தமிழ் (Tamil)',
             'hindi': 'ഹിन्दी (Hindi)',
             'telugu': 'తెలుగు (Telugu)',
-            'kannada': 'ಕನ್ನಡ (Kannada)',
+            'kannada': 'കನ್ನಡ (Kannada)',
             'spanish': 'Español (Spanish)',
             'french': 'Français (French)',
             'german': 'Deutsch (German)',
@@ -640,10 +640,10 @@
 
     document.getElementById('puterMenuButton').onclick = (e) => {
       e.stopPropagation();
-      renderDynamicSessionList(); 
-      renderDynamicScrapedList(); // NEW: Pulls and displays newly indexed crawled files
-      loadNostrIdentityInUI(); // Handshake: Load nsec/npub keys dynamically
-      syncGeminiUIState(); // NEW: Auto-sync settings drawer state natively
+      try { renderDynamicSessionList(); } catch (err) { console.error("Error rendering sessions list: " + err); }
+      try { renderDynamicScrapedList(); } catch (err) { console.error("Error rendering scraped list: " + err); }
+      try { loadNostrIdentityInUI(); } catch (err) { console.error("Error loading Nostr identity: " + err); }
+      try { syncGeminiUIState(); } catch (err) { console.error("Error syncing Gemini settings state: " + err); }
       document.getElementById('puterDropdownMenu').classList.toggle('show');
     };
 
@@ -805,7 +805,7 @@
                 html += `<div class="model-item" onclick='selectModel("${m.id}", "${safeName}", ${modelStr})'>${m.name || m.id}</div>`;
             });
             html += `</div>`; // FIXED: Added missing closing div to prevent accordion nested rendering bug
-            backgroundWs = null;
+            let backgroundWs = null;
         }
         html += `   </div></div>`;
 
@@ -2107,6 +2107,45 @@
         }
         groundingPrompt += "\n";
 
+        // =========================================================================
+        // NEW: PATHWAY ROUTING BRANCH: PUTER VS NATIVE GEMINI IN AUTO MODE
+        // =========================================================================
+        if (activeProvider === "Gemini") {
+            const modelId = globalSelectedModel;
+            const msgId = "gemini-" + Date.now() + "_" + Math.floor(Math.random() * 1000000);
+            
+            const contents = [{
+                role: "user",
+                parts: [{ text: `USER QUESTION: ${queryText}` }]
+            }];
+
+            const payload = {
+                contents: contents,
+                systemInstruction: { parts: [{ text: groundingPrompt }] }
+            };
+
+            const payloadJson = JSON.stringify(payload);
+            const isStreaming = window.AndroidInterface ? window.AndroidInterface.getGeminiStreaming() : true;
+            const supportsStreaming = !modelId.includes("tts") && !modelId.includes("live-preview") && isStreaming;
+
+            const loader = document.getElementById('ecgLoader');
+            if (loader) loader.style.display = 'none';
+
+            setupGeminiCallbacks(queryText, msgId, supportsStreaming);
+
+            try {
+                if (window.AndroidInterface && window.AndroidInterface.executeGeminiCall) {
+                    window.AndroidInterface.executeGeminiCall(modelId, payloadJson, supportsStreaming, msgId);
+                } else {
+                    throw new Error("Android Interface native bridge not available.");
+                }
+            } catch (e) {
+                const targetSpan = document.getElementById(`stream-content-${msgId}`);
+                if (targetSpan) targetSpan.innerHTML = "RAG execution failed: " + e.message;
+            }
+            return;
+        }
+
         let finalUserQueryText = `USER QUESTION: ${queryText}`;
         if (targetLanguage) {
             const scriptName = nativeLanguage || targetLanguage;
@@ -2461,6 +2500,342 @@
         }
     }
 
+    // =========================================================================
+    // NEW: DIRECT NATIVE GEMINI API INTEGRATION SENDERS
+    // =========================================================================
+
+    async function executeNativeGeminiSend(promptText, files) {
+        const loader = document.getElementById('ecgLoader');
+        loader.style.display = 'flex';
+        window.scrollTo(0, document.body.scrollHeight);
+
+        const modelId = globalSelectedModel;
+        const msgId = "gemini-" + Date.now() + "_" + Math.floor(Math.random() * 1000000);
+
+        const contents = [];
+        const parts = [];
+
+        if (promptText) {
+            parts.push({ text: promptText });
+        }
+
+        files.forEach(f => {
+            if (f.type.startsWith('image/')) {
+                const match = f.data.match(/^data:([^;]+);base64,(.+)$/);
+                if (match) {
+                    parts.push({
+                        inlineData: {
+                            mimeType: match[1],
+                            data: match[2]
+                        }
+                    });
+                }
+            } else {
+                parts.push({ text: `[Attached File: ${f.name}]\n${f.data}` });
+            }
+        });
+
+        contents.push({ role: "user", parts: parts });
+
+        const payload = { contents: contents };
+
+        if (modelId.includes("tts")) {
+            payload.generationConfig = {
+                responseModalities: ["AUDIO"],
+                speechConfig: {
+                    voiceConfig: {
+                        prebuiltVoiceConfig: {
+                            voiceName: "Puck"
+                        }
+                    }
+                }
+            };
+        }
+
+        const groundingType = window.AndroidInterface ? window.AndroidInterface.getGeminiGrounding() : "none";
+        if (groundingType !== "none") {
+            payload.tools = [];
+            if (groundingType === "search") {
+                payload.tools.push({ "googleSearch": {} });
+            } else if (groundingType === "maps") {
+                payload.tools.push({ "googleMaps": {} });
+            }
+        }
+
+        const targetLanguage = localStorage.getItem("puter_target_language") || "";
+        const nativeLanguage = getNativeLanguageName(targetLanguage);
+        if (targetLanguage) {
+            const systemDirective = `IMPORTANT:\nALWAYS respond ONLY in ${nativeLanguage || targetLanguage}.\n\nNEVER use English.\n\nEven if user speaks English, translate internally and answer only in ${nativeLanguage || targetLanguage}. Do not transliterate. Write strictly in the native script characters of the language.`;
+            payload.systemInstruction = { parts: [{ text: systemDirective }] };
+        } else if (customInstruction) {
+            payload.systemInstruction = { parts: [{ text: customInstruction }] };
+        }
+
+        const payloadJson = JSON.stringify(payload);
+        const isStreaming = window.AndroidInterface ? window.AndroidInterface.getGeminiStreaming() : true;
+        const supportsStreaming = !modelId.includes("tts") && !modelId.includes("live-preview") && isStreaming;
+
+        clearFiles();
+
+        setupGeminiCallbacks(promptText, msgId, supportsStreaming);
+
+        try {
+            if (window.AndroidInterface && window.AndroidInterface.executeGeminiCall) {
+                window.AndroidInterface.executeGeminiCall(modelId, payloadJson, supportsStreaming, msgId);
+            } else {
+                throw new Error("Android Interface native bridge not available.");
+            }
+        } catch (e) {
+            loader.style.display = 'none';
+            appendChat("System", "Native Execution failed: " + e.message);
+        }
+    }
+
+    // Global callback cache to process streaming chunk characters
+    let activeGeminiBuffer = "";
+    let braceCount = 0;
+    let startIndex = -1;
+
+    function setupGeminiCallbacks(promptText, msgId, isStreaming) {
+        activeGeminiBuffer = "";
+        braceCount = 0;
+        startIndex = -1;
+
+        const log = document.getElementById('puterChatLog');
+        const div = document.createElement('div');
+        div.className = "message bot-message";
+        div.id = msgId;
+
+        let pressTimer;
+        let startX, startY;
+        div.onpointerdown = (e) => { 
+            if (pressTimer) clearTimeout(pressTimer);
+            startX = e.clientX;
+            startY = e.clientY;
+            pressTimer = window.setTimeout(() => { showContextMenu(e, activeGeminiBuffer, msgId); }, 700); 
+        };
+        div.onpointermove = (e) => {
+            if (pressTimer && Math.hypot(e.clientX - startX, e.clientY - startY) > 8) {
+                clearTimeout(pressTimer);
+                pressTimer = null;
+            }
+        };
+        div.onpointerup = () => {
+            if (pressTimer) { clearTimeout(pressTimer); pressTimer = null; }
+        };
+        div.onpointercancel = () => {
+            if (pressTimer) { clearTimeout(pressTimer); pressTimer = null; }
+        };
+        div.oncontextmenu = (e) => e.preventDefault();
+
+        div.innerHTML = `<div class="message-content"><b>Bot:</b><br><span id="stream-content-${msgId}">Thinking...</span></div>`;
+        log.appendChild(div);
+        window.scrollTo(0, document.body.scrollHeight);
+
+        window.onGeminiStreamChunk = function(targetMsgId, rawChunk) {
+            if (targetMsgId !== msgId) return;
+            activeGeminiBuffer += rawChunk;
+
+            const targetSpan = document.getElementById(`stream-content-${msgId}`);
+            if (!targetSpan) return;
+
+            let textToRender = "";
+            let tempBuffer = activeGeminiBuffer;
+
+            for (let i = 0; i < tempBuffer.length; i++) {
+                if (tempBuffer[i] === '{') {
+                    if (braceCount === 0) startIndex = i;
+                    braceCount++;
+                } else if (tempBuffer[i] === '}') {
+                    braceCount--;
+                    if (braceCount === 0 && startIndex !== -1) {
+                        const jsonStr = tempBuffer.substring(startIndex, i + 1);
+                        try {
+                            const obj = JSON.parse(jsonStr);
+                            const partText = obj.candidates?.[0]?.content?.parts?.[0]?.text;
+                            if (partText) {
+                                textToRender += partText;
+                            }
+                        } catch (e) {}
+                    }
+                }
+            }
+
+            if (textToRender) {
+                targetSpan.innerHTML = marked.parse(textToRender);
+                document.querySelectorAll(`#stream-content-${msgId} pre code:not(.hljs)`).forEach((block) => { hljs.highlightElement(block); });
+            }
+            window.scrollTo(0, document.body.scrollHeight);
+        };
+
+        window.onGeminiStreamComplete = function(targetMsgId) {
+            if (targetMsgId !== msgId) return;
+            finalizeGeminiResponse(msgId);
+        };
+
+        window.onGeminiComplete = function(targetMsgId, fullResponse) {
+            if (targetMsgId !== msgId) return;
+            const targetSpan = document.getElementById(`stream-content-${msgId}`);
+            if (!targetSpan) return;
+
+            try {
+                const obj = JSON.parse(fullResponse);
+                const part = obj.candidates?.[0]?.content?.parts?.[0];
+                let renderedText = "";
+                let audioPlayed = false;
+
+                if (part && part.inlineData && part.inlineData.data) {
+                    const base64Audio = part.inlineData.data;
+                    const mimeType = part.inlineData.mimeType || "audio/mp3";
+                    const audioUrl = `data:${mimeType};base64,${base64Audio}`;
+
+                    targetSpan.dataset.audioUrl = audioUrl;
+
+                    if (window.activeCustomAudioSource) {
+                        try { window.activeCustomAudioSource.pause(); } catch(e) {}
+                    }
+
+                    const audio = new Audio(audioUrl);
+                    window.activeCustomAudioSource = audio;
+
+                    if (isVoiceResponseActive) {
+                        audio.onended = () => { window.onSpeechFinished(); };
+                        audio.onerror = () => { window.onSpeechFinished(); };
+                    }
+
+                    audio.play();
+                    renderedText = `🔊 <span class="text-slate-400 italic">Native Audio Response Played</span>`;
+                    audioPlayed = true;
+                } else {
+                    renderedText = part?.text || "No response generated.";
+                }
+
+                targetSpan.innerHTML = marked.parse(renderedText);
+                Prism.highlightAllUnder(targetSpan);
+
+                const metadata = obj.candidates?.[0]?.groundingMetadata;
+                if (metadata) {
+                    targetSpan.innerHTML += renderGroundingMetadataMarkup(metadata);
+                }
+
+                finalizeGeminiResponse(msgId, renderedText);
+            } catch (e) {
+                targetSpan.innerHTML = "Error parsing response: " + e.message;
+                finalizeGeminiResponse(msgId, "Error parsing response: " + e.message);
+            }
+        };
+
+        window.onGeminiError = function(targetMsgId, error) {
+            if (targetMsgId !== msgId) return;
+            const loader = document.getElementById('ecgLoader');
+            loader.style.display = 'none';
+            
+            const targetSpan = document.getElementById(`stream-content-${msgId}`);
+            if (targetSpan) {
+                targetSpan.innerHTML = `<span class="text-rose-500">Error: ${error}</span>`;
+            }
+            finalizeGeminiResponse(msgId, "Error: " + error);
+        };
+    }
+
+    function finalizeGeminiResponse(msgId, textBody = null) {
+        const loader = document.getElementById('ecgLoader');
+        loader.style.display = 'none';
+
+        let finalBody = textBody;
+        if (!finalBody) {
+            let textToRender = "";
+            let tempBuffer = activeGeminiBuffer;
+            let bCount = 0;
+            let sIndex = -1;
+
+            for (let i = 0; i < tempBuffer.length; i++) {
+                if (tempBuffer[i] === '{') {
+                    if (bCount === 0) sIndex = i;
+                    bCount++;
+                } else if (tempBuffer[i] === '}') {
+                    bCount--;
+                    if (bCount === 0 && sIndex !== -1) {
+                        const jsonStr = tempBuffer.substring(sIndex, i + 1);
+                        try {
+                            const obj = JSON.parse(jsonStr);
+                            const partText = obj.candidates?.[0]?.content?.parts?.[0]?.text;
+                            if (partText) textToRender += partText;
+                        } catch (e) {}
+                    }
+                }
+            }
+            finalBody = textToRender || "No output generated.";
+            const targetSpan = document.getElementById(`stream-content-${msgId}`);
+            if (targetSpan) {
+                targetSpan.innerHTML = marked.parse(finalBody);
+                try {
+                    const lastJson = tempBuffer.substring(tempBuffer.lastIndexOf('{'));
+                    const obj = JSON.parse(lastJson);
+                    if (obj.candidates?.[0]?.groundingMetadata) {
+                        targetSpan.innerHTML += renderGroundingMetadataMarkup(obj.candidates[0].groundingMetadata);
+                    }
+                } catch(e) {}
+            }
+        }
+
+        appendTtsTriggerButton(msgId);
+
+        chatHistory.push({sender: "Bot", text: finalBody, id: msgId, files: []});
+        localStorage.setItem('puter_chat_history_' + currentSessionId, JSON.stringify(chatHistory));
+        window.scrollTo(0, document.body.scrollHeight);
+
+        if (isVoiceResponseActive && !document.getElementById(msgId)?.querySelector(".message-content")?.dataset?.audioUrl) {
+            if (window.AndroidInterface) {
+                window.AndroidInterface.speak(finalBody);
+            }
+        }
+    }
+
+    function renderGroundingMetadataMarkup(metadata) {
+        if (!metadata) return "";
+        let html = `<div style="margin-top:12px; padding-top:8px; border-top:1px solid #ddd; font-size:12px; color:#666;">`;
+        
+        if (metadata.webSearchQueries && metadata.webSearchQueries.length > 0) {
+            html += `<div style="margin-bottom:6px;"><span style="font-weight:bold; color:#555;">Searched:</span> <span style="font-style:italic;">"${metadata.webSearchQueries.join(', ')}"</span></div>`;
+        }
+        
+        if (metadata.groundingChunks && metadata.groundingChunks.length > 0) {
+            html += `<div style="font-weight:bold; color:#555; margin-bottom:4px;">Sources:</div>`;
+            html += `<div style="display:flex; flex-wrap:wrap; gap:6px;">`;
+            metadata.groundingChunks.forEach(chunk => {
+                if (chunk.web) {
+                    html += `
+                        <a href="${chunk.web.uri}" target="_blank" style="display:inline-flex; align-items:center; gap:4px; background:#f0f4f9; color:#1a73e8; padding:4px 8px; border-radius:12px; text-decoration:none; font-size:11px; max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">
+                            <span class="material-symbols-outlined" style="font-size:12px;">open_in_new</span>
+                            <span>${chunk.web.title || chunk.web.uri}</span>
+                        </a>
+                    `;
+                }
+            });
+            html += `</div>`;
+        }
+        html += `</div>`;
+        return html;
+    }
+
+    function appendTtsTriggerButton(msgId) {
+        const bubble = document.getElementById(msgId);
+        if (!bubble) return;
+
+        const textContainer = bubble.querySelector(".message-content");
+        if (!textContainer) return;
+
+        const ttsBtn = document.createElement("button");
+        ttsBtn.style.cssText = "display:flex; align-items:center; gap:4px; font-size:10px; color:#5f6368; background:none; border:none; cursor:pointer; margin-top:6px; padding:0; font-weight:bold;";
+        ttsBtn.onclick = () => readAloud(`stream-content-${msgId}`);
+        ttsBtn.innerHTML = `
+            <span class="material-symbols-outlined" style="font-size:14px;">volume_up</span>
+            <span>Read aloud</span>
+        `;
+        textContainer.appendChild(ttsBtn);
+    }
+
     // --- HELPER FUNCTIONS ---
 
     function saveCustom() {
@@ -2558,3 +2933,4 @@
   </script>
 </body>
 </html>
+
