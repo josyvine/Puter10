@@ -19,6 +19,7 @@ import java.util.Locale;
  * Optimized for Puter Unofficial to handle barge-in interruptions
  * and reliable communication with the HTML frontend.
  * UPDATED: Integrated hardware-reset logic and adaptive error recovery.
+ * ENHANCED: Direct hook into WebAppInterface's unified Master Barge-In system to safely halt Gemini voice outputs.
  */
 public class VoiceManager {
 
@@ -69,6 +70,7 @@ public class VoiceManager {
                     Log.d(TAG, "User started speaking - BARGE-IN TRIGGERED");
                     // BARGE-IN: If the AI is currently speaking, stop it immediately
                     // This allows the user to interrupt the AI response.
+                    // ENHANCED: bridge.stopSpeaking() now silences both native TTS AND WebView custom Gemini audio [1].
                     if (bridge != null) {
                         bridge.stopSpeaking();
                     }
