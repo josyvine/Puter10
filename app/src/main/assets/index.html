@@ -2739,13 +2739,23 @@
 
             try {
                 const obj = JSON.parse(fullResponse);
-                const part = obj.candidates?.[0]?.content?.parts?.[0];
-                let renderedText = "";
-                let audioPlayed = false;
+                let textTranscript = "";
+                let base64Audio = null;
+                const parts = obj.candidates?.[0]?.content?.parts || [];
 
-                if (part && part.inlineData && part.inlineData.data) {
-                    const base64Audio = part.inlineData.data;
-                    
+                for (const part of parts) {
+                    if (part.text) {
+                        textTranscript += part.text + "\n";
+                    }
+                    if (part.inlineData && part.inlineData.data) {
+                        base64Audio = part.inlineData.data;
+                    }
+                }
+
+                let renderedText = "";
+                textTranscript = textTranscript.trim();
+
+                if (base64Audio) {
                     // PCM WAV encapsulation execution
                     const wavBuffer = pcmToWav(base64ToArrayBuffer(base64Audio), 24000, 1, 16);
                     const blob = new Blob([wavBuffer], { type: "audio/wav" });
@@ -2766,10 +2776,9 @@
                     }
 
                     audio.play();
-                    renderedText = `🔊 <span class="text-slate-400 italic">Native Audio Response Played</span>`;
-                    audioPlayed = true;
+                    renderedText = textTranscript || `🔊 <span class="text-slate-400 italic">Native Audio Response Played</span>`;
                 } else {
-                    renderedText = part?.text || "No response generated.";
+                    renderedText = textTranscript || "No response generated.";
                 }
 
                 targetSpan.innerHTML = marked.parse(renderedText);
