@@ -1,18 +1,20 @@
 package com.puter.unofficial;
 
 import android.app.Activity;
+import android.content.BroadcastReceiver;
 import android.content.ClipData;
 import android.content.ClipboardManager;
-import android.content.ContentValues; // Added for saving images
+import android.content.ContentValues;
 import android.content.Context;
 import android.content.Intent;
+import android.content.IntentFilter;
 import android.content.SharedPreferences;
-import android.graphics.Bitmap; // Added for image decoding
-import android.graphics.BitmapFactory; // Added for image decoding
+import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
 import android.net.Uri;
-import android.os.Build; // Added for Scoped Storage compatibility
-import android.os.Environment; // Added for public directory
-import android.provider.MediaStore; // Added for saving images
+import android.os.Build;
+import android.os.Environment;
+import android.provider.MediaStore;
 import android.speech.tts.TextToSpeech;
 import android.speech.tts.UtteranceProgressListener;
 import android.webkit.JavascriptInterface;
@@ -21,12 +23,12 @@ import android.widget.Toast;
 import android.util.Log;
 import android.webkit.CookieManager;
 
-import java.io.OutputStream; // Added for writing image data
-import java.io.IOException; // Added for exception handling
+import java.io.OutputStream;
+import java.io.IOException;
 import java.util.Locale;
 import java.util.Map;
-import java.util.Objects; // Added for null checks on Objects
-import java.util.Date; // Added for unique file naming
+import java.util.Objects;
+import java.util.Date;
 
 /**
  * The core bridge class between the HTML JavaScript and Native Android code.
@@ -40,7 +42,7 @@ import java.util.Date; // Added for unique file naming
  * UPDATED: Added on-demand wakeUpKiwi() JavascriptInterface to handle lazy wake-ups.
  * ENHANCED: Integrated Gemini model registries, settings drawer variables, and OkHttp stream dispatchers.
  * CRITICAL FIXES: Added explicit pause/resume microphone controls for Web Audio and resolved dual-STT mic conflicts.
- * DIAGNOSTIC INTERCEPTOR: Translates WebView console log states directly to native intents to manage zero-click continuous voice.
+ * LOG INTERCEPTOR FIX: Parses low-level browser diagnostic messages inside logDiagnostic to cleanly release duplicate mic locks.
  */
 public class WebAppInterface {
 
@@ -51,6 +53,9 @@ public class WebAppInterface {
     private VoiceManager voiceManager;
     private GeminiService geminiService;
     private boolean isTtsInitialized = false;
+
+    // Dynamic BroadcastReceiver to listen for barge-in stop commands from the active VoiceAgentActivity
+    private BroadcastReceiver stopSpeakingReceiver;
 
     // REQUIREMENT: Logic flag to distinguish between Voice Agent mode and standard Text mode.
     // Prevents TTS from reading normal keyboard messages.
@@ -128,6 +133,19 @@ public class WebAppInterface {
                 nativeLog("TTS Initialization Failed", "error");
             }
         });
+
+        // Register dynamic receiver to intercept barge-in stop requests from the foreground voice activity
+        this.stopSpeakingReceiver = new BroadcastReceiver() {
+            @Override
+            public void onReceive(Context context, Intent intent) {
+                if ("PUTER_STOP_SPEAKING".equals(intent.getAction())) {
+                    DiagnosticLogger.log("[INTENT] Received PUTER_STOP_SPEAKING. Triggering web-audio queue halt.");
+                    stopSpeaking();
+                }
+            }
+        };
+        IntentFilter filter = new IntentFilter("PUTER_STOP_SPEAKING");
+        context.registerReceiver(this.stopSpeakingReceiver, filter);
     }
 
     /**
