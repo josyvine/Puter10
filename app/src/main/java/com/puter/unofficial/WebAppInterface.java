@@ -3,16 +3,16 @@ package com.puter.unofficial;
 import android.app.Activity;
 import android.content.ClipData;
 import android.content.ClipboardManager;
-import android.content.ContentValues;
+import android.content.ContentValues; // Added for saving images
 import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
-import android.graphics.Bitmap;
-import android.graphics.BitmapFactory;
+import android.graphics.Bitmap; // Added for image decoding
+import android.graphics.BitmapFactory; // Added for image decoding
 import android.net.Uri;
-import android.os.Build;
-import android.os.Environment;
-import android.provider.MediaStore;
+import android.os.Build; // Added for Scoped Storage compatibility
+import android.os.Environment; // Added for public directory
+import android.provider.MediaStore; // Added for saving images
 import android.speech.tts.TextToSpeech;
 import android.speech.tts.UtteranceProgressListener;
 import android.webkit.JavascriptInterface;
@@ -21,12 +21,12 @@ import android.widget.Toast;
 import android.util.Log;
 import android.webkit.CookieManager;
 
-import java.io.OutputStream;
-import java.io.IOException;
+import java.io.OutputStream; // Added for writing image data
+import java.io.IOException; // Added for exception handling
 import java.util.Locale;
 import java.util.Map;
-import java.util.Objects;
-import java.util.Date;
+import java.util.Objects; // Added for null checks on Objects
+import java.util.Date; // Added for unique file naming
 
 /**
  * The core bridge class between the HTML JavaScript and Native Android code.
@@ -40,6 +40,7 @@ import java.util.Date;
  * UPDATED: Added on-demand wakeUpKiwi() JavascriptInterface to handle lazy wake-ups.
  * ENHANCED: Integrated Gemini model registries, settings drawer variables, and OkHttp stream dispatchers.
  * CRITICAL FIXES: Added explicit pause/resume microphone controls for Web Audio and resolved dual-STT mic conflicts.
+ * DIAGNOSTIC INTERCEPTOR: Translates WebView console log states directly to native intents to manage zero-click continuous voice.
  */
 public class WebAppInterface {
 
@@ -130,7 +131,7 @@ public class WebAppInterface {
     }
 
     /**
-     * Helper to safely escape JavaScript parameters to avoid string literal breakage.
+     * Helper to safely escape JavaScript parameters to avoid script execution failures.
      */
     private String escapeJsString(String value) {
         if (value == null) {
@@ -1057,3 +1058,4 @@ public class WebAppInterface {
         }
     }
 }
+
