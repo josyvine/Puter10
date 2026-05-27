@@ -3065,7 +3065,51 @@
         }
     }
 
-    // execute immediately on load
+    function handleGeminiApiKeyChange(value) {
+        if (window.AndroidInterface && window.AndroidInterface.saveGeminiApiKey) {
+            window.AndroidInterface.saveGeminiApiKey(value.trim());
+        }
+        localStorage.setItem("gemini_user_api_key", value.trim());
+    }
+
+    function handleGeminiStreamToggle(checked) {
+        if (window.AndroidInterface && window.AndroidInterface.setGeminiStreaming) {
+            window.AndroidInterface.setGeminiStreaming(checked);
+        }
+    }
+
+    function handleGeminiGroundingChange(value) {
+        if (window.AndroidInterface && window.AndroidInterface.setGeminiGrounding) {
+            window.AndroidInterface.setGeminiGrounding(value);
+        }
+    }
+
+    function syncGeminiUIState() {
+        const divider = document.getElementById("geminiMenuDivider");
+        const header = document.getElementById("geminiToggleDrawerHeader");
+        const drawer = document.getElementById("geminiSettingsDrawer");
+        
+        if (activeProvider === "Gemini") {
+            if (divider) divider.style.display = "block";
+            if (header) header.style.display = "flex";
+            if (window.AndroidInterface) {
+                const apiKey = window.AndroidInterface.getGeminiApiKey ? window.AndroidInterface.getGeminiApiKey() : localStorage.getItem("gemini_user_api_key");
+                document.getElementById("geminiApiKeyInput").value = apiKey || "";
+                
+                const stream = window.AndroidInterface.getGeminiStreaming ? window.AndroidInterface.getGeminiStreaming() : true;
+                document.getElementById("geminiStreamToggle").checked = stream;
+                
+                const grounding = window.AndroidInterface.getGeminiGrounding ? window.AndroidInterface.getGeminiGrounding() : "none";
+                document.getElementById("geminiGroundingSelect").value = grounding || "none";
+            }
+        } else {
+            if (divider) divider.style.display = "none";
+            if (header) header.style.display = "none";
+            if (drawer) drawer.style.display = "none";
+        }
+    }
+
+    // Execute immediately on load
     window.onload = () => {
         console.log("Page Lifecycle: ONLOAD on Secure Origin");
 
