@@ -38,6 +38,7 @@ import java.util.Locale;
  * PERFORMANCE FIXES: Shielded STT onError callbacks from processing programmatic cancellations, and added safe hardware re-initialization.
  * WEBRTC HANDOFF FIX: Releases native STT hardware lock during Live WebSocket sessions to unblock browser-level capture and Acoustic Echo Cancellation (AEC).
  * PROACTIVE HANDOFF FIX: Recommends destroying and releasing the SpeechRecognizer immediately inside processUserQuery() to bypass 100ms hardware release race conditions.
+ * TIMING & LIFECYCLE FIXES: Implements layered STT teardowns, audio focus release, a 1200ms WebRTC delay buffer, and removes redundant cancellations.
  */
 public class VoiceAgentActivity extends AppCompatActivity {
 
@@ -444,14 +445,25 @@ public class VoiceAgentActivity extends AppCompatActivity {
                     runOnUiThread(() -> {
                         if (active) {
                             // Live WebSocket connection established. Completely shutdown and release the native 
-                            // SpeechRecognizer to free the hardware microphone lock so WebRTC can start capture smoothly.
+                            // SpeechRecognizer with layered teardown (Fix 2) to free the hardware microphone lock.
                             if (speechRecognizer != null) {
-                                speechRecognizer.cancel();
-                                speechRecognizer.destroy();
+                                try {
+                                    speechRecognizer.stopListening();
+                                } catch (Exception ignored) {}
+
+                                try {
+                                    speechRecognizer.cancel();
+                                } catch (Exception ignored) {}
+
+                                try {
+                                    speechRecognizer.destroy();
+                                } catch (Exception ignored) {}
+                                
                                 speechRecognizer = null;
                             }
                             isListening = false;
                             tvStatus.setText("Puter is speaking...");
+                            WebAppInterface.DiagnosticLogger.log("[LIFECYCLE] Native SpeechRecognizer fully released for WebRTC handoff.");
                         } else {
                             // WebSocket closed. Re-initialize and restore native microphone listening
                             startListening();
@@ -463,7 +475,7 @@ public class VoiceAgentActivity extends AppCompatActivity {
                         WebAppInterface.DiagnosticLogger.log("[INTENT] Received PUTER_USER_TRANSCRIPT: " + text);
                         runOnUiThread(() -> {
                             tvTranscript.setText(text);
-                            tvStatus.setText("Puter is thinking...");
+                            tvStatus.setText("Puter is thinking... ");
                         });
                     }
                 }
@@ -488,33 +500,56 @@ public class VoiceAgentActivity extends AppCompatActivity {
      * Sends the user's spoken transcription text directly to the WebView client.
      * 
      * CRITICAL WEBRTC HANDOFF FIX: Completely shuts down and destroys the native SpeechRecognizer 
-     * instance immediately inside processUserQuery(). This provides a ~1.5 second buffer of 
-     * silence for the Android OS to release its hardware microphone lock *before* the 
-     * WebView's WebSocket completes the handshake and attempts getUserMedia().
+     * instance immediately inside processUserQuery(). 
+     * TIMING UPDATE (Fix 1): Releasing audio focus and applying a 1200ms delay buffer on sending 
+     * the WebView query ensures standard background speech services have fully cleared the 
+     * hardware microphone lock before WebRTC begins getUserMedia() initialization.
      */
-    private void processUserQuery(String text) {
+    private void processUserQuery(final String text) {
         runOnUiThread(() -> tvStatus.setText("Puter is thinking..."));
         WebAppInterface.DiagnosticLogger.log("[DISPATCH] Forwarding user query text to local web client.");
         
-        // PROACTIVE MIC-RELEASE HANDOFF:
-        // Destroy and release the SpeechRecognizer IMMEDIATELY on dispatch.
-        // This frees the microphone hardware on the OS level, preventing a 100ms race-condition 
-        // with the WebView's subsequent WebRTC capture setup (getUserMedia).
+        // STEP 1: FULL MIC RELEASE (Fix 1 Layered Teardown)
         if (speechRecognizer != null) {
             try {
+                speechRecognizer.stopListening();
+            } catch (Exception ignored) {}
+
+            try {
                 speechRecognizer.cancel();
+            } catch (Exception ignored) {}
+
+            try {
                 speechRecognizer.destroy();
                 WebAppInterface.DiagnosticLogger.log("[LIFECYCLE] Destroyed active native SpeechRecognizer context on dispatch.");
             } catch (Exception e) {
-                Log.e(TAG, "Error releasing native SpeechRecognizer on dispatch: " + e.getMessage());
+                Log.e(TAG, "Error releasing SpeechRecognizer: " + e.getMessage());
             }
             speechRecognizer = null;
         }
         isListening = false;
 
-        Intent intent = new Intent("PUTER_VOICE_INPUT");
-        intent.putExtra("QUERY", text);
-        sendBroadcast(intent);
+        // STEP 2: RELEASE AUDIO FOCUS (Fix 1)
+        try {
+            android.media.AudioManager audioManager = 
+                    (android.media.AudioManager) getSystemService(Context.AUDIO_SERVICE);
+
+            if (audioManager != null) {
+                audioManager.abandonAudioFocus(null);
+                WebAppInterface.DiagnosticLogger.log("[AUDIO] Audio focus abandoned successfully.");
+            }
+        } catch (Exception e) {
+            Log.e(TAG, "Audio focus release failed: " + e.getMessage());
+        }
+
+        // STEP 3: WAIT FOR HARDWARE RELEASE (Fix 1 - 1200ms Delay Buffer)
+        hardwareHandler.postDelayed(() -> {
+            WebAppInterface.DiagnosticLogger.log("[WEBRTC] Delayed Live session dispatch started after mic release buffer.");
+
+            Intent intent = new Intent("PUTER_VOICE_INPUT");
+            intent.putExtra("QUERY", text);
+            sendBroadcast(intent);
+        }, 1200);
     }
 
     public void speakAIResponse(String response) {
@@ -544,7 +579,7 @@ public class VoiceAgentActivity extends AppCompatActivity {
                     setupSTTListener();
                     WebAppInterface.DiagnosticLogger.log("[STT] Re-initialized active SpeechRecognizer context.");
                 }
-                speechRecognizer.cancel();
+                // REMOVED speechRecognizer.cancel() (Fix 3) immediately before startListening to prevent client-side loop errors
                 speechRecognizer.startListening(recognizerIntent);
                 isListening = true;
             } catch (Exception e) {
@@ -574,9 +609,16 @@ public class VoiceAgentActivity extends AppCompatActivity {
     @Override
     protected void onPause() {
         super.onPause();
-        // Prevent mic hanging in background
+        // Prevent mic hanging in background using isolated teardown blocks (Fix 4)
         if (speechRecognizer != null) {
-            speechRecognizer.cancel();
+            try {
+                speechRecognizer.stopListening();
+            } catch (Exception ignored) {}
+
+            try {
+                speechRecognizer.cancel();
+            } catch (Exception ignored) {}
+            
             isListening = false;
         }
     }
