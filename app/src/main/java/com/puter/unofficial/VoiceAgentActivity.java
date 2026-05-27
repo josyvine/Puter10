@@ -34,6 +34,7 @@ import java.util.Locale;
  * ENHANCED: Full-screen hands-free voice loop fully supports both Puter and Gemini conversational engines.
  * MODIFIED: Integrated on-screen dynamic log terminal HUD with copy-to-clipboard functionality.
  * CRITICAL FIXES: Added intent filters to support zero-click hands-free turn transitions and live Web Audio barge-ins.
+ * BARGE-IN UPDATE: Gated onBeginningOfSpeech STT resets with a state tracking flag to prevent infinite loops and client-side STT errors.
  */
 public class VoiceAgentActivity extends AppCompatActivity {
 
@@ -50,6 +51,9 @@ public class VoiceAgentActivity extends AppCompatActivity {
 
     private boolean isListening = false;
     private boolean isAIspeaking = false;
+
+    // State tracking variable to gate the barge-in cancellation and prevent false STT resets
+    private boolean isAiSpeakingOrPlaying = false;
 
     // Handler for managing hardware sync delays
     private final Handler hardwareHandler = new Handler(Looper.getMainLooper());
@@ -201,6 +205,7 @@ public class VoiceAgentActivity extends AppCompatActivity {
             @Override
             public void onStart(String utteranceId) {
                 isAIspeaking = true;
+                isAiSpeakingOrPlaying = true; // State-gate: AI native TTS playback active
                 runOnUiThread(() -> tvStatus.setText("Puter is speaking..."));
                 WebAppInterface.DiagnosticLogger.log("[TTS] Speaking AI response sequence initialized.");
 
@@ -212,6 +217,7 @@ public class VoiceAgentActivity extends AppCompatActivity {
             @Override
             public void onDone(String utteranceId) {
                 isAIspeaking = false;
+                isAiSpeakingOrPlaying = false; // State-gate: AI native TTS playback finished
                 WebAppInterface.DiagnosticLogger.log("[TTS] Speech playback successfully finalized.");
                 // CONTINUOUS FLOW: Re-open mic to wait for next user command
                 runOnUiThread(() -> startListening());
@@ -220,6 +226,7 @@ public class VoiceAgentActivity extends AppCompatActivity {
             @Override
             public void onError(String utteranceId) {
                 isAIspeaking = false;
+                isAiSpeakingOrPlaying = false; // State-gate: native TTS playback completed with error
                 WebAppInterface.DiagnosticLogger.log("[ERROR] Native TTS playback error occurred.");
                 runOnUiThread(() -> startListening());
             }
@@ -238,32 +245,39 @@ public class VoiceAgentActivity extends AppCompatActivity {
             @Override
             public void onBeginningOfSpeech() {
                 WebAppInterface.DiagnosticLogger.log("[STT] Voice activity detected.");
-                // FIX: BARGE-IN COMPREHENSION RECOVERY
-                // If user talks while AI is speaking (Native TTS or Web Audio), kill the AI speech immediately.
-                Log.d(TAG, "Barge-in: Voice detected - performing hardware reset.");
-                WebAppInterface.DiagnosticLogger.log("[BARGE_IN] Speech detected. Silencing output queues.");
+                
+                // BARGE-IN RESOLUTION GATING: Only execute the reset and WebView stop sequence 
+                // if the AI is actively speaking or playing audio chunks (Native TTS or Web Audio).
+                if (isAiSpeakingOrPlaying) {
+                    Log.d(TAG, "Barge-in: Voice detected during active AI playback - performing hardware reset.");
+                    WebAppInterface.DiagnosticLogger.log("[BARGE_IN] Speech detected while AI speaking. Silencing output.");
 
-                if (tts != null) {
-                    tts.stop();
-                }
-                isAIspeaking = false;
-
-                // Broadcast intent to WebAppInterface to clear custom audio players and Live WebSocket play queues
-                Intent stopIntent = new Intent("PUTER_STOP_SPEAKING");
-                sendBroadcast(stopIntent);
-
-                /* 
-                 * REQUIREMENT: Reset the audio buffer immediately.
-                 * We cycle the recognizer to ensure that the AI's audio residue 
-                 * is purged and the user's first words are captured clearly.
-                 */
-                hardwareHandler.postDelayed(() -> {
-                    if (isListening) {
-                        speechRecognizer.cancel();
-                        isListening = false;
-                        startListening();
+                    if (tts != null) {
+                        tts.stop();
                     }
-                }, 50); // Minimal delay to allow audio focus release
+                    isAIspeaking = false;
+                    isAiSpeakingOrPlaying = false; // Reset state tracking
+
+                    // Broadcast intent to WebAppInterface to clear custom audio players and Live WebSocket play queues
+                    Intent stopIntent = new Intent("PUTER_STOP_SPEAKING");
+                    sendBroadcast(stopIntent);
+
+                    /* 
+                     * REQUIREMENT: Reset the audio buffer immediately.
+                     * We cycle the recognizer to ensure that the AI's audio residue 
+                     * is purged and the user's first words are captured clearly.
+                     */
+                    hardwareHandler.postDelayed(() -> {
+                        if (isListening) {
+                            speechRecognizer.cancel();
+                            isListening = false;
+                            startListening();
+                        }
+                    }, 50); // Minimal delay to allow audio focus release
+                } else {
+                    // STT remains un-cancelled, letting transcription run cleanly
+                    WebAppInterface.DiagnosticLogger.log("[STT] AI is silent. Letting user's voice transcribe normally.");
+                }
             }
 
             @Override
@@ -351,6 +365,7 @@ public class VoiceAgentActivity extends AppCompatActivity {
                         WebAppInterface.DiagnosticLogger.log("[BARGE_IN] Partial transcription captured. Muting TTS output.");
                         tts.stop();
                         isAIspeaking = false;
+                        isAiSpeakingOrPlaying = false;
                     }
                 }
             }
@@ -373,10 +388,12 @@ public class VoiceAgentActivity extends AppCompatActivity {
                     String aiText = intent.getStringExtra("RESPONSE_TEXT");
                     if (aiText != null) {
                         WebAppInterface.DiagnosticLogger.log("[INTENT] Received PUTER_AI_RESPONSE payload. Synthesizing.");
+                        isAiSpeakingOrPlaying = true; // State-gate: AI native TTS output starting
                         speakAIResponse(aiText);
                     }
                 } else if ("PUTER_START_LISTENING".equals(action)) {
                     WebAppInterface.DiagnosticLogger.log("[INTENT] Received PUTER_START_LISTENING. Restarting native microphone.");
+                    isAiSpeakingOrPlaying = false; // State-gate: AI speaking sequence completed
                     runOnUiThread(() -> {
                         if (speechRecognizer != null) {
                             speechRecognizer.cancel();
@@ -386,6 +403,7 @@ public class VoiceAgentActivity extends AppCompatActivity {
                     });
                 } else if ("PUTER_PAUSE_LISTENING".equals(action)) {
                     WebAppInterface.DiagnosticLogger.log("[INTENT] Received PUTER_PAUSE_LISTENING. Suspending native microphone.");
+                    isAiSpeakingOrPlaying = true; // State-gate: AI Web Audio streaming active
                     runOnUiThread(() -> {
                         if (speechRecognizer != null) {
                             speechRecognizer.cancel();
@@ -454,6 +472,7 @@ public class VoiceAgentActivity extends AppCompatActivity {
             if (tts.isSpeaking()) {
                 tts.stop();
                 isAIspeaking = false;
+                isAiSpeakingOrPlaying = false;
             }
             startListening();
         }
