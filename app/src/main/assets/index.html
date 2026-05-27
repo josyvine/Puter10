@@ -320,6 +320,19 @@
             <option value="maps">Google Maps</option>
           </select>
         </div>
+        <!-- NEW: ADOPTED VOICE CHARACTER VARIABLE UI -->
+        <div style="display:flex; flex-direction:column; gap:4px; margin-top:5px;">
+          <label style="font-size:11px; font-weight:bold; color:#555;">Voice Character</label>
+          <select id="geminiVoiceSelect" onchange="handleGeminiVoiceChange(this.value)" style="width:100%; padding:8px 12px; border:1px solid #ccc; border-radius:8px; font-size:13px; outline:none; background:#fff; box-sizing:border-box;">
+            <option value="Aoede">Aoede (Breezy)</option>
+            <option value="Charon">Charon (Informative)</option>
+            <option value="Kore">Kore (Firm)</option>
+            <option value="Puck" selected>Puck (Upbeat)</option>
+            <option value="Fenrir">Fenrir (Excitable)</option>
+            <option value="Leda">Leda (Youthful)</option>
+            <option value="Zephyr">Zephyr (Bright)</option>
+          </select>
+        </div>
       </div>
     </ul>
   </header>
@@ -441,7 +454,7 @@
         <!-- Dynamically filled by JS -->
       </div>
       <div class="modal-buttons">
-        <button class="btn-secondary" onclick="closeModal('historyModal')">Close</button>
+        <button class="btn-secondary" onclick="closeModal('helpModal')">Close</button>
       </div>
     </div>
   </div>
@@ -503,7 +516,7 @@
             'tamil': 'தமிழ் (Tamil)',
             'hindi': 'ഹിन्दी (Hindi)',
             'telugu': 'తెలుగు (Telugu)',
-            'kannada': 'ಕನ್ನಡ (Kannada)',
+            'kannada': 'കನ್ನಡ (Kannada)',
             'spanish': 'Español (Spanish)',
             'french': 'Français (French)',
             'german': 'Deutsch (German)',
@@ -597,6 +610,15 @@
     /* --- NEW FEATURE: DUAL-PROVIDER MULTIPLEX ENGINE --- */
     let activeProvider = "Puter";
 
+    /* --- NEW FEATURE: REFERENCE WEBSOCKET LIVE AUDIO STATE VARIABLES --- */
+    let liveWs = null;
+    let liveAudioContext = null;
+    let liveAudioProcessor = null;
+    let liveMicStream = null;
+    let livePlayCtx = null;
+    let nextPlayTime = 0;
+    let activeSources = [];
+
     /* FIX #1: AUTO-EXPANDING TEXTAREA LOGIC */
     function handleInput() {
       const input = document.getElementById('puterChatInput');
@@ -662,7 +684,7 @@
         el.classList.toggle('open');
     }
 
-    /* ENHANCEMENT: UPDATED SELECT MODEL TO DETECT IMAGE GENERATION */
+    /* ENHANCEMENT: UPDATED SELECT MODEL TO DETECT IMAGE GENERATION & AUDIO TYPE */
     function selectModel(id, name, modelObj = null) {
         globalSelectedModel = id;
         globalModelObject = modelObj;
@@ -687,7 +709,7 @@
             const groundingSelectEl = document.getElementById("geminiGroundingSelect");
 
             // 1. Streaming support gate - disables streaming on binary text-to-speech models
-            const supportsStreaming = modelObj && modelObj.categories && !modelObj.id.includes("tts") && !modelObj.id.includes("live-preview");
+            const supportsStreaming = modelObj && modelObj.categories && !modelObj.id.includes("tts") && !modelObj.id.includes("live-preview") && !modelObj.id.includes("native-audio") && !modelObj.id.includes("exp");
             if (supportsStreaming) {
                 streamToggleEl.disabled = false;
                 streamToggleEl.parentElement.style.opacity = "1";
@@ -704,8 +726,9 @@
             const supportsGrounding = modelObj && modelObj.categories && 
                 (modelObj.id.includes("flash") || modelObj.id.includes("gemma-4") || modelObj.id.includes("pro"));
             
-            // Gemma models strictly block Google Maps grounding
-            const supportsMaps = supportsGrounding && !modelObj.id.includes("gemma");
+            // WebSocket live models do not support maps grounding. Toggle validation gate.
+            const isLiveModel = id.includes("live") || id.includes("native-audio") || id.includes("exp");
+            const supportsMaps = supportsGrounding && !modelObj.id.includes("gemma") && !isLiveModel;
 
             if (supportsGrounding) {
                 groundingSelectEl.disabled = false;
@@ -1043,6 +1066,15 @@
 
       // REQUIREMENT: Must check both text and stagedFiles
       if(!text && stagedFiles.length === 0) return;
+
+      // Master Barge-In Call: Stop standard speakers and cancel active live queue streaming on any sending trigger
+      if (window.activeCustomAudioSource) {
+          try { window.activeCustomAudioSource.pause(); window.activeCustomAudioSource.currentTime = 0; } catch(e) {}
+      }
+      clearPlaybackQueueLive();
+      if (window.AndroidInterface && window.AndroidInterface.stopSpeaking) {
+          window.AndroidInterface.stopSpeaking();
+      }
 
       // =========================================================================
       // DUAL-MODE BRANCHING INTERCEPTOR (Instruction One, Two, Five)
@@ -2510,11 +2542,28 @@
     // =========================================================================
 
     async function executeNativeGeminiSend(promptText, files) {
+        const apiKey = window.AndroidInterface ? window.AndroidInterface.getGeminiApiKey() : localStorage.getItem("gemini_user_api_key");
+        const modelId = globalSelectedModel;
+
+        const useSearch = window.AndroidInterface ? (window.AndroidInterface.getGeminiGrounding() === "search") : false;
+        const voiceName = window.AndroidInterface ? (window.AndroidInterface.getGeminiVoice ? window.AndroidInterface.getGeminiVoice() : localStorage.getItem("gemini_user_voice")) : "Puck";
+
+        // WebSocket Live Protocol Gateway Redirect Loop
+        const isLiveModel = modelId.includes("live") || modelId.includes("native-audio") || modelId.includes("exp");
+
+        if (isLiveModel) {
+            if (!apiKey) {
+                alert("Please configure a valid Gemini Access API key first in Settings.");
+                return;
+            }
+            connectWebSocketLive(apiKey, modelId, voiceName, useSearch);
+            return;
+        }
+
         const loader = document.getElementById('ecgLoader');
         loader.style.display = 'flex';
         window.scrollTo(0, document.body.scrollHeight);
 
-        const modelId = globalSelectedModel;
         const msgId = "gemini-" + Date.now() + "_" + Math.floor(Math.random() * 1000000);
 
         const contents = [];
@@ -2553,7 +2602,7 @@
                 speechConfig: {
                     voiceConfig: {
                         prebuiltVoiceConfig: {
-                            voiceName: "Puck"
+                            voiceName: voiceName
                         }
                     }
                 }
@@ -2696,8 +2745,11 @@
 
                 if (part && part.inlineData && part.inlineData.data) {
                     const base64Audio = part.inlineData.data;
-                    const mimeType = part.inlineData.mimeType || "audio/mp3";
-                    const audioUrl = `data:${mimeType};base64,${base64Audio}`;
+                    
+                    // PCM WAV encapsulation execution
+                    const wavBuffer = pcmToWav(base64ToArrayBuffer(base64Audio), 24000, 1, 16);
+                    const blob = new Blob([wavBuffer], { type: "audio/wav" });
+                    const audioUrl = URL.createObjectURL(blob);
 
                     targetSpan.dataset.audioUrl = audioUrl;
 
@@ -2721,7 +2773,7 @@
                 }
 
                 targetSpan.innerHTML = marked.parse(renderedText);
-                Prism.highlightAllUnder(targetSpan);
+                document.querySelectorAll(`#stream-content-${msgId} pre code:not(.hljs)`).forEach((block) => { hljs.highlightElement(block); });
 
                 const metadata = obj.candidates?.[0]?.groundingMetadata;
                 if (metadata) {
@@ -3084,6 +3136,13 @@
         }
     }
 
+    function handleGeminiVoiceChange(value) {
+        localStorage.setItem("gemini_user_voice", value);
+        if (window.AndroidInterface && window.AndroidInterface.saveGeminiVoice) {
+            window.AndroidInterface.saveGeminiVoice(value);
+        }
+    }
+
     function syncGeminiUIState() {
         const divider = document.getElementById("geminiMenuDivider");
         const header = document.getElementById("geminiToggleDrawerHeader");
@@ -3101,12 +3160,318 @@
                 
                 const grounding = window.AndroidInterface.getGeminiGrounding ? window.AndroidInterface.getGeminiGrounding() : "none";
                 document.getElementById("geminiGroundingSelect").value = grounding || "none";
+
+                const voice = window.AndroidInterface.getGeminiVoice ? window.AndroidInterface.getGeminiVoice() : (localStorage.getItem("gemini_user_voice") || "Puck");
+                document.getElementById("geminiVoiceSelect").value = voice;
             }
         } else {
             if (divider) divider.style.display = "none";
             if (header) header.style.display = "none";
             if (drawer) drawer.style.display = "none";
         }
+    }
+
+    /* --- ADOPTED PCM-WAV & RAW ARRAY BUFFER PIPELINE UTILITIES --- */
+    function base64ToArrayBuffer(base64) {
+        const binaryString = window.atob(base64);
+        const len = binaryString.length;
+        const bytes = new Uint8Array(len);
+        for (let i = 0; i < len; i++) {
+            bytes[i] = binaryString.charCodeAt(i);
+        }
+        return bytes.buffer;
+    }
+
+    function pcmToWav(pcmBuffer, sampleRate, channels, bitsPerSample) {
+        const pcmLength = pcmBuffer.byteLength;
+        const header = new ArrayBuffer(44);
+        const view = new DataView(header);
+
+        function writeString(view, offset, string) {
+            for (let i = 0; i < string.length; i++) {
+                view.setUint8(offset + i, string.charCodeAt(i));
+            }
+        }
+
+        writeString(view, 0, "RIFF");
+        view.setUint32(4, 36 + pcmLength, true);
+        writeString(view, 8, "WAVE");
+        writeString(view, 12, "fmt ");
+        view.setUint32(16, 16, true);
+        view.setUint16(20, 1, true);
+        view.setUint16(22, channels, true);
+        view.setUint32(24, sampleRate, true);
+        view.setUint32(28, (sampleRate * channels * bitsPerSample) / 8, true);
+        view.setUint16(32, (channels * bitsPerSample) / 8, true);
+        view.setUint16(34, bitsPerSample, true);
+        writeString(view, 36, "data");
+        view.setUint32(40, pcmLength, true);
+
+        const wavBytes = new Uint8Array(44 + pcmLength);
+        wavBytes.set(new Uint8Array(header), 0);
+        wavBytes.set(new Uint8Array(pcmBuffer), 44);
+
+        return wavBytes.buffer;
+    }
+
+    function arrayBufferToBase64(buffer) {
+        let binary = "";
+        const bytes = new Uint8Array(buffer);
+        const len = bytes.byteLength;
+        for (let i = 0; i < len; i++) {
+            binary += String.fromCharCode(bytes[i]);
+        }
+        return window.btoa(binary);
+    }
+
+    /* --- ADOPTED WEBSOCKET LIVE AUDIO ROUTING PIPELINES --- */
+    function connectWebSocketLive(apiKey, modelId, voiceName, useSearch) {
+        disconnectWebSocketLive();
+        
+        if (window.AndroidInterface) {
+            window.AndroidInterface.nativeLog("Connecting to WebSocket Live API. Model: " + modelId + " Voice: " + voiceName, "native");
+        }
+        
+        const url = `wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent?key=${apiKey}`;
+        
+        try {
+            liveWs = new WebSocket(url);
+        } catch (err) {
+            console.error("Live WebSocket creation exception: ", err);
+            return;
+        }
+        
+        liveWs.onopen = () => {
+            const setupMessage = {
+                setup: {
+                    model: "models/" + modelId,
+                    generationConfig: {
+                        responseModalities: ["AUDIO"],
+                        speechConfig: {
+                            voiceConfig: {
+                                prebuiltVoiceConfig: {
+                                    voiceName: voiceName
+                                }
+                            }
+                        }
+                    },
+                    tools: useSearch ? [{ googleSearch: {} }] : undefined
+                }
+            };
+            liveWs.send(JSON.stringify(setupMessage));
+            if (window.AndroidInterface) {
+                window.AndroidInterface.nativeLog("Live session configuration sent.", "native");
+            }
+        };
+        
+        let currentLiveBotSpan = null;
+        
+        liveWs.onmessage = async (event) => {
+            try {
+                let payload;
+                if (event.data instanceof Blob) {
+                    const textData = await event.data.text();
+                    payload = JSON.parse(textData);
+                } else {
+                    payload = JSON.parse(event.data);
+                }
+                
+                if (payload.setupComplete) {
+                    if (window.AndroidInterface) {
+                        window.AndroidInterface.nativeLog("Live Handshake confirmed. Initializing capture stream...", "native");
+                    }
+                    initMicrophoneCaptureLive();
+                    return;
+                }
+                
+                if (payload.error) {
+                    console.error("Live server error returned:", payload.error);
+                    disconnectWebSocketLive();
+                    return;
+                }
+                
+                if (payload.serverContent) {
+                    const content = payload.serverContent;
+                    
+                    // Unified Live Barge-in Interruption Hook
+                    if (content.interrupted) {
+                        if (window.AndroidInterface) {
+                            window.AndroidInterface.nativeLog("⚡ Live interruption event received. Silencing playback buffers.", "native");
+                        }
+                        clearPlaybackQueueLive();
+                        if (currentLiveBotSpan) {
+                            currentLiveBotSpan.innerHTML += " <i>[Interrupted]</i>";
+                        }
+                        currentLiveBotSpan = null;
+                    }
+                    
+                    if (content.modelTurn && content.modelTurn.parts) {
+                        const msgId = "live-msg-" + Date.now();
+                        if (!currentLiveBotSpan) {
+                            const log = document.getElementById('puterChatLog');
+                            const div = document.createElement('div');
+                            div.className = "message bot-message";
+                            div.id = msgId;
+                            div.innerHTML = `<div class="message-content"><b>Bot:</b><br><span id="live-span-${msgId}"></span></div>`;
+                            log.appendChild(div);
+                            currentLiveBotSpan = document.getElementById(`live-span-${msgId}`);
+                        }
+                        
+                        for (const part of content.modelTurn.parts) {
+                            if (part.text) {
+                                currentLiveBotSpan.innerText += part.text;
+                                chatHistory.push({sender: "Bot", text: part.text, id: msgId, files: []});
+                                localStorage.setItem('puter_chat_history_' + currentSessionId, JSON.stringify(chatHistory));
+                            }
+                            if (part.inlineData && part.inlineData.data) {
+                                scheduleAudioChunkPlayLive(part.inlineData.data);
+                            }
+                        }
+                        window.scrollTo(0, document.body.scrollHeight);
+                    }
+                    
+                    if (content.turnComplete) {
+                        currentLiveBotSpan = null;
+                    }
+                    
+                    if (content.inputTranscription && content.inputTranscription.text) {
+                        appendChat("User", content.inputTranscription.text, false, []);
+                    }
+                }
+            } catch (e) {
+                console.error("Live packet processing exception: ", e);
+            }
+        };
+        
+        liveWs.onclose = () => {
+            disconnectWebSocketLive();
+        };
+        
+        liveWs.onerror = (err) => {
+            console.error("Live WebSockets channel error: ", err);
+        };
+    }
+
+    async function initMicrophoneCaptureLive() {
+        try {
+            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            liveMicStream = stream;
+            
+            liveAudioContext = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
+            const source = liveAudioContext.createMediaStreamSource(stream);
+            
+            liveAudioProcessor = liveAudioContext.createScriptProcessor(2048, 1, 1);
+            
+            liveAudioProcessor.onaudioprocess = (e) => {
+                if (!liveWs || liveWs.readyState !== WebSocket.OPEN) return;
+                
+                const inputFloat32 = e.inputBuffer.getChannelData(0);
+                const pcmBuffer = new ArrayBuffer(inputFloat32.length * 2);
+                const pcmView = new DataView(pcmBuffer);
+                
+                for (let i = 0; i < inputFloat32.length; i++) {
+                    let sample = Math.max(-1, Math.min(1, inputFloat32[i]));
+                    let int16Sample = sample < 0 ? sample * 0x8000 : sample * 0x7FFF;
+                    pcmView.setInt16(i * 2, int16Sample, true);
+                }
+                
+                const base64AudioChunk = arrayBufferToBase64(pcmBuffer);
+                
+                liveWs.send(JSON.stringify({
+                    realtimeInput: {
+                        audio: {
+                            mimeType: "audio/pcm;rate=16000",
+                            data: base64AudioChunk
+                        }
+                    }
+                }));
+            };
+            
+            source.connect(liveAudioProcessor);
+            liveAudioProcessor.connect(liveAudioContext.destination);
+        } catch (err) {
+            console.error("Live microphone acquisition failed: ", err);
+            disconnectWebSocketLive();
+        }
+    }
+
+    function scheduleAudioChunkPlayLive(base64Data) {
+        try {
+            if (!livePlayCtx) {
+                livePlayCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 24000 });
+            }
+            
+            const rawBuffer = base64ToArrayBuffer(base64Data);
+            const int16Samples = new Int16Array(rawBuffer);
+            const float32Samples = new Float32Array(int16Samples.length);
+            
+            for (let i = 0; i < int16Samples.length; i++) {
+                float32Samples[i] = int16Samples[i] / 32768.0;
+            }
+            
+            const audioBuffer = livePlayCtx.createBuffer(1, float32Samples.length, 24000);
+            audioBuffer.copyToChannel(float32Samples, 0);
+            
+            const sourceNode = livePlayCtx.createBufferSource();
+            sourceNode.buffer = audioBuffer;
+            sourceNode.connect(livePlayCtx.destination);
+            
+            const currentTime = livePlayCtx.currentTime;
+            if (nextPlayTime < currentTime) {
+                nextPlayTime = currentTime + 0.05;
+            }
+            
+            sourceNode.start(nextPlayTime);
+            activeSources.push({
+                source: sourceNode,
+                endTime: nextPlayTime + audioBuffer.duration
+            });
+            
+            nextPlayTime += audioBuffer.duration;
+            activeSources = activeSources.filter(item => item.endTime > currentTime);
+        } catch (err) {
+            console.error("Live queue scheduling exception: ", err);
+        }
+    }
+
+    function disconnectWebSocketLive() {
+        if (liveMicStream) {
+            try {
+                liveMicStream.getTracks().forEach(track => track.stop());
+            } catch(e) {}
+            liveMicStream = null;
+        }
+        if (liveAudioProcessor) {
+            try {
+                liveAudioProcessor.disconnect();
+            } catch(e) {}
+            liveAudioProcessor = null;
+        }
+        if (liveAudioContext) {
+            liveAudioContext.close().catch(() => {});
+            liveAudioContext = null;
+        }
+        clearPlaybackQueueLive();
+        if (livePlayCtx) {
+            livePlayCtx.close().catch(() => {});
+            livePlayCtx = null;
+        }
+        if (liveWs) {
+            if (liveWs.readyState === WebSocket.OPEN || liveWs.readyState === WebSocket.CONNECTING) {
+                liveWs.close();
+            }
+            liveWs = null;
+        }
+    }
+
+    function clearPlaybackQueueLive() {
+        activeSources.forEach((item) => {
+            try {
+                item.source.stop();
+            } catch (e) {}
+        });
+        activeSources = [];
+        nextPlayTime = 0;
     }
 
     // Execute immediately on load
