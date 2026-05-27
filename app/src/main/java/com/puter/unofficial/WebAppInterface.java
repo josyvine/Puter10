@@ -58,6 +58,46 @@ public class WebAppInterface {
     // allowing background WebView components to stay initialized.
     public static volatile boolean isVoiceModeActiveStatic = false;
 
+    // MODIFIED: Global static tracking for Live WebSocket session visibility
+    public static volatile boolean isLiveSocketActive = false;
+
+    // =========================================================================
+    // MODIFIED: CENTRAL THREAD-SAFE FORENSIC DIAGNOSTIC LOGGER
+    // =========================================================================
+    public static class DiagnosticLogger {
+        private static final StringBuilder logBuilder = new StringBuilder();
+        private static LogListener listener;
+
+        public interface LogListener {
+            void onLogAdded(String newLog);
+        }
+
+        public static synchronized void log(String message) {
+            String timestamp = new java.text.SimpleDateFormat("HH:mm:ss.SSS", java.util.Locale.getDefault()).format(new java.util.Date());
+            String formatted = "[" + timestamp + "] " + message + "\n";
+            logBuilder.append(formatted);
+            if (listener != null) {
+                listener.onLogAdded(formatted);
+            }
+            Log.d("DiagnosticLogger", formatted);
+        }
+
+        public static synchronized String getLogs() {
+            return logBuilder.toString();
+        }
+
+        public static synchronized void setListener(LogListener l) {
+            listener = l;
+            if (listener != null && logBuilder.length() > 0) {
+                listener.onLogAdded(logBuilder.toString());
+            }
+        }
+
+        public static synchronized void clear() {
+            logBuilder.setLength(0);
+        }
+    }
+
     /**
      * Constructor for the interface.
      * @param context Activity context required for launching intents and UI updates.
@@ -171,6 +211,7 @@ public class WebAppInterface {
         this.isVoiceModeActive = active;
         isVoiceModeActiveStatic = active; // Update static class property for visibility
         nativeLog("Bridge: Voice Mode " + (active ? "ENABLED" : "DISABLED"), "info");
+        DiagnosticLogger.log("Voice Mode state shifted natively to: " + active);
     }
 
     // 1. NATIVE TEXT-TO-SPEECH (TTS)
@@ -180,9 +221,32 @@ public class WebAppInterface {
         if (isTtsInitialized && tts != null) {
             // Only speak if Voice Mode is active OR if manually requested by long-press
             nativeLog("AI speaking response via Native Engine...", "info");
-            // Barge-in logic: QUEUE_FLUSH clears previous speech and interrupts immediately
-            tts.stop();
-            tts.speak(text, TextToSpeech.QUEUE_FLUSH, null, AppConstants.TTS_UTTERANCE_ID);
+            
+            if (isVoiceModeActive) {
+                // MODIFIED: Fix Breakage 2 by broadcasting the AI response text back to VoiceAgentActivity
+                // instead of speaking it inside MainActivity's background context.
+                broadcastAiResponseToVoiceAgent(text);
+                DiagnosticLogger.log("[BROADCAST] Sent PUTER_AI_RESPONSE back to active voice agent.");
+            } else {
+                // Barge-in logic: QUEUE_FLUSH clears previous speech and interrupts immediately
+                tts.stop();
+                tts.speak(text, TextToSpeech.QUEUE_FLUSH, null, AppConstants.TTS_UTTERANCE_ID);
+                DiagnosticLogger.log("[LOCAL TTS] Speaking locally inside MainActivity context.");
+            }
+        }
+    }
+
+    /**
+     * Helper to broadcast AI results back to the active foreground VoiceAgentActivity.
+     */
+    private void broadcastAiResponseToVoiceAgent(String text) {
+        try {
+            Intent intent = new Intent("PUTER_AI_RESPONSE");
+            intent.putExtra("RESPONSE_TEXT", text);
+            context.sendBroadcast(intent);
+        } catch (Exception e) {
+            Log.e("WebAppInterface", "Error broadcasting AI response: " + e.getMessage());
+            DiagnosticLogger.log("[ERROR] Failed to broadcast PUTER_AI_RESPONSE: " + e.getMessage());
         }
     }
 
@@ -213,6 +277,7 @@ public class WebAppInterface {
                 "}", null
             );
         });
+        DiagnosticLogger.log("[BARGE_IN] Speech interruption event handled.");
     }
 
     // 3. NATIVE SPEECH RECOGNITION (Standard)
@@ -919,6 +984,15 @@ public class WebAppInterface {
         } else {
             nativeLog("Bridge Connection Failure: GeminiService was not properly instantiated.", "error");
         }
+    }
+
+    // =========================================================================
+    // MODIFIED: DIAGNOSTIC LOG ACCESS INTERFACE
+    // =========================================================================
+    @JavascriptInterface
+    public void logDiagnostic(String message, String category) {
+        DiagnosticLogger.log("[" + category.toUpperCase() + "] " + message);
+        nativeLog("[" + category.toUpperCase() + "] " + message, "info");
     }
 
     /**
