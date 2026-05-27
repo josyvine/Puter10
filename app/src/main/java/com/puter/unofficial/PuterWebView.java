@@ -68,8 +68,23 @@ public class PuterWebView extends WebView {
             this.onResume();
             this.resumeTimers();
         } else {
-            this.onPause();
-            this.pauseTimers();
+            // MODIFIED: Prevent pausing background socket streams and JavaScript loops
+            // if the hands-free continuous voice conversation loop is running.
+            if (!isVoiceModeActive()) {
+                this.onPause();
+                this.pauseTimers();
+            }
+        }
+    }
+
+    /**
+     * Helper method to check the static voice mode state from WebAppInterface.
+     */
+    private boolean isVoiceModeActive() {
+        try {
+            return WebAppInterface.isVoiceModeActiveStatic;
+        } catch (Exception e) {
+            return false;
         }
     }
 }
