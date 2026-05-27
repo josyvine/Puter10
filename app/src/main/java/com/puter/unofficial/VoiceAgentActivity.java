@@ -475,7 +475,7 @@ public class VoiceAgentActivity extends AppCompatActivity {
                         WebAppInterface.DiagnosticLogger.log("[INTENT] Received PUTER_USER_TRANSCRIPT: " + text);
                         runOnUiThread(() -> {
                             tvTranscript.setText(text);
-                            tvStatus.setText("Puter is thinking... ");
+                            tvStatus.setText("Puter is thinking...");
                         });
                     }
                 }
