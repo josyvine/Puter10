@@ -618,6 +618,7 @@
     let livePlayCtx = null;
     let nextPlayTime = 0;
     let activeSources = [];
+    let pendingLiveQuery = null;
 
     /* FIX #1: AUTO-EXPANDING TEXTAREA LOGIC */
     function handleInput() {
@@ -727,7 +728,7 @@
                 (modelObj.id.includes("flash") || modelObj.id.includes("gemma-4") || modelObj.id.includes("pro"));
             
             // WebSocket live models do not support maps grounding. Toggle validation gate.
-            const isLiveModel = id.includes("live") || id.includes("native-audio") || id.includes("exp");
+            const isLiveModel = modelObj && modelObj.categories && modelObj.categories.includes("live");
             const supportsMaps = supportsGrounding && !modelObj.id.includes("gemma") && !isLiveModel;
 
             if (supportsGrounding) {
@@ -2200,7 +2201,7 @@
             updateLoaderCardText(loaderId, "AI is synthesizing web findings...");
 
             if (window.AndroidInterface) {
-                window.AndroidInterface.nativeLog("Delivering grounding payload to Puter completions pipeline. Model: " + activeModel, "native");
+                window.AndroidInterface.nativeLog("Delivering grounding grounding payload to Puter completions pipeline. Model: " + activeModel, "native");
             }
 
             // Standardize RAG output as messages array to avoid system-message proxy omissions
@@ -2556,7 +2557,13 @@
                 alert("Please configure a valid Gemini Access API key first in Settings.");
                 return;
             }
-            connectWebSocketLive(apiKey, modelId, voiceName, useSearch);
+            if (liveWs && liveWs.readyState === WebSocket.OPEN) {
+                sendLiveTextQuery(promptText, files);
+            } else {
+                pendingLiveQuery = { text: promptText, files: files };
+                connectWebSocketLive(apiKey, modelId, voiceName, useSearch);
+            }
+            clearFiles();
             return;
         }
 
@@ -3290,6 +3297,12 @@
                         window.AndroidInterface.nativeLog("Live Handshake confirmed. Initializing capture stream...", "native");
                     }
                     initMicrophoneCaptureLive();
+                    
+                    // Dispatch any stored/pending query that initiated the connection
+                    if (pendingLiveQuery) {
+                        sendLiveTextQuery(pendingLiveQuery.text, pendingLiveQuery.files);
+                        pendingLiveQuery = null;
+                    }
                     return;
                 }
                 
@@ -3401,6 +3414,42 @@
         } catch (err) {
             console.error("Live microphone acquisition failed: ", err);
             disconnectWebSocketLive();
+        }
+    }
+
+    function sendLiveTextQuery(promptText, files) {
+        if (!liveWs || liveWs.readyState !== WebSocket.OPEN) return;
+        const turnParts = [];
+        if (promptText) {
+            turnParts.push({ text: promptText });
+        }
+        if (files && files.length > 0) {
+            files.forEach(f => {
+                if (f.type.startsWith('image/')) {
+                    const match = f.data.match(/^data:([^;]+);base64,(.+)$/);
+                    if (match) {
+                        turnParts.push({
+                            inlineData: {
+                                mimeType: match[1],
+                                data: match[2]
+                            }
+                        });
+                    }
+                }
+            });
+        }
+        const clientContentMsg = {
+            clientContent: {
+                turns: [{
+                    role: "user",
+                    parts: turnParts
+                }],
+                turnComplete: true
+            }
+        };
+        liveWs.send(JSON.stringify(clientContentMsg));
+        if (window.AndroidInterface) {
+            window.AndroidInterface.nativeLog("Dispatched live text query frame over WebSocket.", "native");
         }
     }
 
@@ -3519,4 +3568,3 @@
   </script>
 </body>
 </html>
-
