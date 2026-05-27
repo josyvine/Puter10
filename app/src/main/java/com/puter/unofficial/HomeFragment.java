@@ -2,6 +2,7 @@ package com.puter.unofficial;
 
 import android.os.Build;
 import android.os.Bundle;
+import android.util.Log; // <<< ADDED IMPORT TO RESOLVE COMPILER ERROR
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
