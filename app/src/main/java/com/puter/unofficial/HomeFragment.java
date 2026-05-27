@@ -81,9 +81,10 @@ public class HomeFragment extends Fragment {
         webAppInterface.setVoiceManager(voiceManager);
         voiceManager.setBridge(webAppInterface);
 
-        // 3. Set the Custom Puter WebView Client
-        // This handles authentication redirects, AssetLoader routing, and persistence logic
+        // 3. Set the Custom Puter WebView Client and Web Chrome Client
+        // This handles authentication redirects, AssetLoader routing, file pickers, popups, and device permissions
         webView.setWebViewClient(new PuterWebViewClient(requireContext()));
+        webView.setWebChromeClient(new MyWebChromeClient(requireActivity()));
 
         // 4. Register the JavaScript Bridge
         // This exposes 'window.AndroidInterface' to the HTML/JS frontend
