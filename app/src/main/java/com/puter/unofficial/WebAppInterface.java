@@ -54,6 +54,10 @@ public class WebAppInterface {
     // Prevents TTS from reading normal keyboard messages.
     private boolean isVoiceModeActive = false;
 
+    // MODIFIED: Global static flag to track if the voice agent is active, 
+    // allowing background WebView components to stay initialized.
+    public static volatile boolean isVoiceModeActiveStatic = false;
+
     /**
      * Constructor for the interface.
      * @param context Activity context required for launching intents and UI updates.
@@ -165,6 +169,7 @@ public class WebAppInterface {
     @JavascriptInterface
     public void setVoiceMode(boolean active) {
         this.isVoiceModeActive = active;
+        isVoiceModeActiveStatic = active; // Update static class property for visibility
         nativeLog("Bridge: Voice Mode " + (active ? "ENABLED" : "DISABLED"), "info");
     }
 
@@ -921,6 +926,7 @@ public class WebAppInterface {
      */
     public void destroy() {
         nativeLog("Shutting down WebAppInterface Bridge...", "native");
+        isVoiceModeActiveStatic = false; // Reset static property on destroy
         if (tts != null) {
             tts.stop();
             tts.shutdown();
