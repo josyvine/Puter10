@@ -35,6 +35,7 @@ import java.util.Locale;
  * MODIFIED: Integrated on-screen dynamic log terminal HUD with copy-to-clipboard functionality.
  * CRITICAL FIXES: Added intent filters to support zero-click hands-free turn transitions and live Web Audio barge-ins.
  * BARGE-IN UPDATE: Gated onBeginningOfSpeech STT resets with a state tracking flag to prevent infinite loops and client-side STT errors.
+ * PERFORMANCE FIXES: Shielded STT onError callbacks from processing programmatic cancellations, and added safe hardware re-initialization.
  */
 public class VoiceAgentActivity extends AppCompatActivity {
 
@@ -239,7 +240,7 @@ public class VoiceAgentActivity extends AppCompatActivity {
             public void onReadyForSpeech(Bundle params) {
                 tvStatus.setText("Listening...");
                 isListening = true;
-                WebAppInterface.DiagnosticLogger.log("[STT] Mic channel initialized. Awaiting user speech...");
+                WebAppInterface.DiagnosticLogger.log("[STT] Mic channel initialized. Awaiting user speech... [isListening: true]");
             }
 
             @Override
@@ -269,7 +270,9 @@ public class VoiceAgentActivity extends AppCompatActivity {
                      */
                     hardwareHandler.postDelayed(() -> {
                         if (isListening) {
-                            speechRecognizer.cancel();
+                            if (speechRecognizer != null) {
+                                speechRecognizer.cancel();
+                            }
                             isListening = false;
                             startListening();
                         }
@@ -294,6 +297,13 @@ public class VoiceAgentActivity extends AppCompatActivity {
 
             @Override
             public void onError(int error) {
+                // EXTREME STABILITY SHIELD: If isListening is false, the cancellation 
+                // was requested programmatically. Ignore the error to bypass self-destructive loops.
+                if (!isListening) {
+                    WebAppInterface.DiagnosticLogger.log("[STT ERROR] Ignored intentional cancellation error. Code: " + error);
+                    return;
+                }
+
                 isListening = false;
                 
                 // Translate the raw error code into clear diagnostic descriptions
@@ -332,7 +342,9 @@ public class VoiceAgentActivity extends AppCompatActivity {
                 // REQUIREMENT: Auto-restart listening on timeouts/silence to maintain "Always On"
                 if (shouldAutoRestart) {
                     WebAppInterface.DiagnosticLogger.log("[RECOVERY] Restarting microphone interface...");
-                    speechRecognizer.cancel();
+                    if (speechRecognizer != null) {
+                        speechRecognizer.cancel();
+                    }
                     hardwareHandler.postDelayed(() -> startListening(), 100);
                 } else {
                     tvStatus.setText("Tap mic to try again");
@@ -450,7 +462,12 @@ public class VoiceAgentActivity extends AppCompatActivity {
     private void startListening() {
         if (!isListening) {
             try {
-                // Ensure no previous session is lingering
+                // Programmatic Guard: Safe re-initialization of the hardware if destroyed
+                if (speechRecognizer == null) {
+                    speechRecognizer = SpeechRecognizer.createSpeechRecognizer(this);
+                    setupSTTListener();
+                    WebAppInterface.DiagnosticLogger.log("[STT] Re-initialized active SpeechRecognizer context.");
+                }
                 speechRecognizer.cancel();
                 speechRecognizer.startListening(recognizerIntent);
                 isListening = true;
@@ -498,6 +515,7 @@ public class VoiceAgentActivity extends AppCompatActivity {
         if (speechRecognizer != null) {
             speechRecognizer.cancel();
             speechRecognizer.destroy();
+            speechRecognizer = null;
         }
         if (tts != null) {
             tts.stop();
