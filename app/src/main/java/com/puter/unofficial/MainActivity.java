@@ -44,6 +44,7 @@ import java.util.List;
  * UPDATED: Fixed File Picker logic to ensure Bridge-initiated uploads 
  * are converted to Base64 and sent to the stagedFiles UI.
  * UPDATED: Integrated runtime POST_NOTIFICATIONS check and startForegroundService.
+ * CRITICAL LIFECYCLE FIXES: Implemented clean onPause microphone release and onResume STT context recreation.
  */
 public class MainActivity extends AppCompatActivity {
 
@@ -551,6 +552,52 @@ public class MainActivity extends AppCompatActivity {
         }
         // Default fallback if we are on index.html
         super.onBackPressed();
+    }
+
+    /**
+     * Lifecycle hook called when the Activity is paused.
+     * 
+     * CRITICAL FIX: Completely destroys and cancels the background standard VoiceManager's 
+     * SpeechRecognizer context to release the hardware microphone lock. stopListening() is not enough.
+     */
+    @Override
+    protected void onPause() {
+        super.onPause();
+        
+        // De-register background STT recognizers in MainActivity to prevent hardware conflicts
+        if (voiceManager != null) {
+            try {
+                voiceManager.destroy(); // Completely cancel and destroy the recognizer to release the mic
+                Log.d("MainActivity", "onPause: Destroyed background voiceManager to release hardware lock.");
+            } catch (Exception e) {
+                Log.e("MainActivity", "Failed to destroy standard background VoiceManager: " + e.getMessage());
+            }
+            voiceManager = null; // Clear the reference to force a clean re-initialization on resume
+        }
+    }
+
+    /**
+     * Lifecycle hook called when the Activity returns to focus.
+     * 
+     * CRITICAL FIX: Automatically re-initializes the standard background VoiceManager 
+     * instance on resume to restore speech dictation capabilities for standard chat mode.
+     */
+    @Override
+    protected void onResume() {
+        super.onResume();
+        
+        // Re-initialize the background VoiceManager when MainActivity returns to focus
+        if (voiceManager == null && webView != null) {
+            try {
+                voiceManager = new VoiceManager(this, webView);
+                if (webAppInterface != null) {
+                    webAppInterface.setVoiceManager(voiceManager);
+                }
+                Log.d("MainActivity", "onResume: Re-initialized background voiceManager context.");
+            } catch (Exception e) {
+                Log.e("MainActivity", "Failed to re-initialize standard background VoiceManager: " + e.getMessage());
+            }
+        }
     }
 
     @Override
