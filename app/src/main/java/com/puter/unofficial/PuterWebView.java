@@ -60,17 +60,24 @@ public class PuterWebView extends WebView {
      * Logic to handle window focus changes, ensuring that the 
      * Puter.js SDK maintains its session connection when the 
      * app is brought back to the foreground.
+     * 
+     * CRITICAL FIX: Tricks the native WebKit engine by forcing VISIBLE status 
+     * to prevent background throttling of JS and Web Audio when VoiceAgentActivity is active.
      */
     @Override
     protected void onWindowVisibilityChanged(int visibility) {
-        super.onWindowVisibilityChanged(visibility);
-        if (visibility == VISIBLE) {
+        if (isVoiceModeActive()) {
+            // Force the internal WebView/Chromium provider to believe the window is still VISIBLE.
+            // This prevents background rendering suspension and keeps the Web Audio Context active.
+            super.onWindowVisibilityChanged(VISIBLE);
             this.onResume();
             this.resumeTimers();
         } else {
-            // MODIFIED: Prevent pausing background socket streams and JavaScript loops
-            // if the hands-free continuous voice conversation loop is running.
-            if (!isVoiceModeActive()) {
+            super.onWindowVisibilityChanged(visibility);
+            if (visibility == VISIBLE) {
+                this.onResume();
+                this.resumeTimers();
+            } else {
                 this.onPause();
                 this.pauseTimers();
             }
