@@ -359,7 +359,6 @@ public class WebAppInterface {
     @JavascriptInterface
     public void setLiveSocketActive(boolean active) {
         isLiveSocketActive = active;
-        isLiveSocketActiveStatic = active;
         nativeLog("Bridge: Live Socket active state changed to: " + active, "info");
 
         // Broadcast intent to update VoiceAgentActivity mic-lock structures
