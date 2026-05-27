@@ -183,14 +183,14 @@ public class WebAppInterface {
 
     // 2. STOP TTS
     // Interrupts the AI speaker immediately.
-    // ENHANCED: Master Interruption logic halts both standard speech AND WebView-hosted custom HTML5 audio elements on barge-in.
+    // ENHANCED: Master Interruption logic halts standard speech, standard HTML5 elements, and custom WebAudio Live queues on barge-in.
     @JavascriptInterface
     public void stopSpeaking() {
         if (tts != null) {
             nativeLog("Stopping AI speech (Barge-in triggered)", "native");
             tts.stop();
         }
-        // Master Interruption: Safely pause and reset any running web-hosted custom binary players
+        // Master Interruption: Safely pause and reset any running web-hosted custom players & WebSocket play queues
         webView.post(() -> {
             webView.evaluateJavascript(
                 "if (window.activeCustomAudioSource) { " +
@@ -199,6 +199,12 @@ public class WebAppInterface {
                 "        window.activeCustomAudioSource.currentTime = 0; " +
                 "        console.log('[JAVA BRIDGE] Stopped custom WebView audio player during barge-in.'); " +
                 "    } catch(e) { console.error('[JAVA BRIDGE] Error pausing custom audio: ' + e.message); } " +
+                "}" +
+                "if (window.clearPlaybackQueueLive) { " +
+                "    try { " +
+                "        window.clearPlaybackQueueLive(); " +
+                "        console.log('[JAVA BRIDGE] Purged WebSocket Live Audio Scheduled play queues.'); " +
+                "    } catch(e) { console.error('[JAVA BRIDGE] Error purging WebSocket queues: ' + e.message); } " +
                 "}", null
             );
         });
@@ -883,6 +889,17 @@ public class WebAppInterface {
     public void setGeminiGrounding(String groundingType) {
         prefs.edit().putString(AppConstants.KEY_GEMINI_GROUNDING, groundingType).apply();
         nativeLog("Gemini active grounding tool state updated natively to: " + groundingType, "info");
+    }
+
+    @JavascriptInterface
+    public String getGeminiVoice() {
+        return prefs.getString("gemini_user_voice", "Puck");
+    }
+
+    @JavascriptInterface
+    public void saveGeminiVoice(String voice) {
+        prefs.edit().putString("gemini_user_voice", voice).apply();
+        nativeLog("Gemini Voice configuration state updated natively to: " + voice, "info");
     }
 
     // =========================================================================
