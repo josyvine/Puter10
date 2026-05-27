@@ -117,8 +117,12 @@ public class HomeFragment extends Fragment {
     public void onPause() {
         super.onPause();
         if (webView != null) {
-            webView.onPause();
-            webView.pauseTimers();
+            // MODIFIED: Prevent pausing background socket streams and JavaScript loops
+            // if the hands-free continuous voice conversation loop is running.
+            if (!isVoiceModeActive()) {
+                webView.onPause();
+                webView.pauseTimers();
+            }
         }
     }
 
@@ -137,5 +141,16 @@ public class HomeFragment extends Fragment {
         }
         super.onDestroyView();
         binding = null;
+    }
+
+    /**
+     * Helper method to check the static voice mode state from WebAppInterface.
+     */
+    private boolean isVoiceModeActive() {
+        try {
+            return WebAppInterface.isVoiceModeActiveStatic;
+        } catch (Exception e) {
+            return false;
+        }
     }
 }
