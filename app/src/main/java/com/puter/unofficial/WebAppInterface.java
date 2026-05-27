@@ -3,16 +3,16 @@ package com.puter.unofficial;
 import android.app.Activity;
 import android.content.ClipData;
 import android.content.ClipboardManager;
-import android.content.ContentValues; // Added for saving images
+import android.content.ContentValues;
 import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
-import android.graphics.Bitmap; // Added for image decoding
-import android.graphics.BitmapFactory; // Added for image decoding
+import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
 import android.net.Uri;
-import android.os.Build; // Added for Scoped Storage compatibility
-import android.os.Environment; // Added for public directory
-import android.provider.MediaStore; // Added for saving images
+import android.os.Build;
+import android.os.Environment;
+import android.provider.MediaStore;
 import android.speech.tts.TextToSpeech;
 import android.speech.tts.UtteranceProgressListener;
 import android.webkit.JavascriptInterface;
@@ -21,12 +21,12 @@ import android.widget.Toast;
 import android.util.Log;
 import android.webkit.CookieManager;
 
-import java.io.OutputStream; // Added for writing image data
-import java.io.IOException; // Added for exception handling
+import java.io.OutputStream;
+import java.io.IOException;
 import java.util.Locale;
 import java.util.Map;
-import java.util.Objects; // Added for null checks on Objects
-import java.util.Date; // Added for unique file naming
+import java.util.Objects;
+import java.util.Date;
 
 /**
  * The core bridge class between the HTML JavaScript and Native Android code.
@@ -39,6 +39,7 @@ import java.util.Date; // Added for unique file naming
  * ENHANCEMENT: Added support for multi-session deletion via native bridge.
  * UPDATED: Added on-demand wakeUpKiwi() JavascriptInterface to handle lazy wake-ups.
  * ENHANCED: Integrated Gemini model registries, settings drawer variables, and OkHttp stream dispatchers.
+ * CRITICAL FIXES: Added explicit pause/resume microphone controls for Web Audio and resolved dual-STT mic conflicts.
  */
 public class WebAppInterface {
 
@@ -129,7 +130,7 @@ public class WebAppInterface {
     }
 
     /**
-     * Helper to safely escape JavaScript parameters to avoid script execution failures.
+     * Helper to safely escape JavaScript parameters to avoid string literal breakage.
      */
     private String escapeJsString(String value) {
         if (value == null) {
@@ -282,23 +283,69 @@ public class WebAppInterface {
 
     // 3. NATIVE SPEECH RECOGNITION (Standard)
     // Triggers background microphone for the search input.
+    // MODIFIED: Integrates explicit route redirection if continuous fullscreen voice agent is active.
     @JavascriptInterface
     public void startListening() {
-        if (voiceManager != null) {
-            nativeLog("Opening Native Microphone for STT...", "native");
-            stopSpeaking();
-            ((Activity) context).runOnUiThread(() -> voiceManager.startListening());
+        nativeLog("startListening called. isVoiceModeActiveStatic: " + isVoiceModeActiveStatic, "native");
+        stopSpeaking();
+        if (isVoiceModeActiveStatic) {
+            // Screen covered by VoiceAgentActivity: broadcast intent to restart foreground STT natively
+            Intent intent = new Intent("PUTER_START_LISTENING");
+            context.sendBroadcast(intent);
+            DiagnosticLogger.log("[BROADCAST] Broadcasted PUTER_START_LISTENING intent to active VoiceAgentActivity.");
+        } else {
+            // Standard keyboard view: fallback to MainActivity background VoiceManager
+            if (voiceManager != null) {
+                ((Activity) context).runOnUiThread(() -> voiceManager.startListening());
+            }
         }
+    }
+
+    // =========================================================================
+    // NEW: PROGRAMMATIC MIC CONTROL HOOKS FOR WEB AUDIO TIMELINES
+    // =========================================================================
+
+    /**
+     * Programmatically pauses the native STT listener during active Web Audio playbacks
+     * to eliminate echo feedback loops and speaker-seizure conflicts.
+     */
+    @JavascriptInterface
+    public void pauseListening() {
+        nativeLog("pauseListening triggered via JS bridge.", "native");
+        Intent intent = new Intent("PUTER_PAUSE_LISTENING");
+        context.sendBroadcast(intent);
+        DiagnosticLogger.log("[BROADCAST] Broadcasted PUTER_PAUSE_LISTENING to mute native microphone.");
+    }
+
+    /**
+     * Programmatically resumes the native STT listener once browser playback queues are fully drained.
+     */
+    @JavascriptInterface
+    public void resumeListening() {
+        nativeLog("resumeListening triggered via JS bridge.", "native");
+        Intent intent = new Intent("PUTER_START_LISTENING");
+        context.sendBroadcast(intent);
+        DiagnosticLogger.log("[BROADCAST] Broadcasted PUTER_START_LISTENING to resume native microphone.");
     }
 
     // 4. FULL-SCREEN VOICE AGENT (Requirement #4)
     // Launches the native full-screen Activity for continuous conversation.
+    // MODIFIED: Programmatically halts the background VoiceManager context to release the mic hardware cleanly.
     @JavascriptInterface
     public void startVoiceAgent() {
         nativeLog("Launching Immersive Full-Screen Voice Agent", "native");
         stopSpeaking();
         // Force Voice Mode active for the full-screen activity
         setVoiceMode(true);
+
+        // De-register background STT recognizers in MainActivity to prevent mic capture wars
+        if (voiceManager != null) {
+            ((Activity) context).runOnUiThread(() -> {
+                voiceManager.stopListening();
+                nativeLog("Background VoiceManager listening paused to yield mic hardware.", "native");
+            });
+        }
+
         Intent intent = new Intent(context, VoiceAgentActivity.class);
         context.startActivity(intent);
     }
