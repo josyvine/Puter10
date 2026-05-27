@@ -2,7 +2,7 @@ package com.puter.unofficial;
 
 import android.os.Build;
 import android.os.Bundle;
-import android.util.Log; // <<< ADDED IMPORT TO RESOLVE COMPILER ERROR
+import android.util.Log;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
@@ -22,8 +22,9 @@ import com.puter.unofficial.databinding.FragmentHomeBinding;
  * It initializes the JavaScript bridge and handles native feature integration.
  * 
  * UPDATED: Integrated WebViewAssetLoader support and Secure Origin migration.
- * CRITICAL FIX: Explicitly stops the native background standard VoiceManager's microphone capture 
- * inside the fragment lifecycle to eliminate hardware contention with the active foreground voice agent.
+ * CRITICAL FIX: Destroys the native background standard VoiceManager's SpeechRecognizer 
+ * inside the fragment lifecycle to eliminate background hardware microphone locks.
+ * RESTORATION FIX: Automatically re-initializes the VoiceManager upon returning to the foreground.
  */
 public class HomeFragment extends Fragment {
 
@@ -106,6 +107,12 @@ public class HomeFragment extends Fragment {
         }
     }
 
+    /**
+     * Lifecycle hook called when the fragment comes back to the foreground.
+     * 
+     * CRITICAL FIX: Automatically re-initializes the standard background VoiceManager 
+     * instance on resume to restore speech dictation capabilities for standard chat mode.
+     */
     @Override
     public void onResume() {
         super.onResume();
@@ -113,26 +120,39 @@ public class HomeFragment extends Fragment {
             webView.onResume();
             webView.resumeTimers();
         }
+
+        // Re-initialize the background VoiceManager when MainActivity returns to focus
+        if (voiceManager == null && webView != null) {
+            try {
+                voiceManager = new VoiceManager(requireActivity(), webView);
+                if (webAppInterface != null) {
+                    webAppInterface.setVoiceManager(voiceManager);
+                }
+                WebAppInterface.DiagnosticLogger.log("[LIFECYCLE] HomeFragment onResume: Re-initialized background microphone context.");
+            } catch (Exception e) {
+                Log.e("HomeFragment", "Failed to re-initialize standard background VoiceManager: " + e.getMessage());
+            }
+        }
     }
 
     /**
      * Lifecycle hook called when the fragment is paused.
      * 
-     * CRITICAL FIX: Stops the background standard STT engine to prevent hardware mic lockouts 
-     * when VoiceAgentActivity takes foreground priority, and selectively preserves the active 
-     * WebKit execution engine if voice session streams are running.
+     * CRITICAL FIX: Completely destroys and releases the native background SpeechRecognizer 
+     * to free the hardware microphone lock. Simply calling stopListening() leaves the lock active.
      */
     @Override
     public void onPause() {
         super.onPause();
         
-        // De-register background STT recognizers in MainActivity to prevent hardware conflicts
+        // De-register and destroy background STT recognizers in MainActivity to prevent hardware conflicts
         if (voiceManager != null) {
             try {
-                voiceManager.stopListening();
-                WebAppInterface.DiagnosticLogger.log("[LIFECYCLE] HomeFragment onPause: Suspended native background microphone.");
+                voiceManager.destroy(); // Completely cancel and destroy the recognizer to release the mic
+                voiceManager = null; // Clear the reference to force a clean re-initialization on resume
+                WebAppInterface.DiagnosticLogger.log("[LIFECYCLE] HomeFragment onPause: Destroyed native background microphone to release hardware lock.");
             } catch (Exception e) {
-                Log.e("HomeFragment", "Failed to suspend standard background VoiceManager: " + e.getMessage());
+                Log.e("HomeFragment", "Failed to destroy standard background VoiceManager: " + e.getMessage());
             }
         }
 
