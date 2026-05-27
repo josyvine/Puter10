@@ -270,6 +270,42 @@
       ]
     },
     {
+      "name": "Gemini 3.1 Flash Live Preview",
+      "id": "gemini-3.1-flash-live-preview",
+      "endpoint": "",
+      "context": 1048576,
+      "max_tokens": 65536,
+      "categories": [
+        "text_chat",
+        "audio",
+        "live"
+      ]
+    },
+    {
+      "name": "Gemini 2.5 Flash Native Audio Preview",
+      "id": "gemini-2.5-flash-native-audio-preview-12-2025",
+      "endpoint": "",
+      "context": 1048576,
+      "max_tokens": 65536,
+      "categories": [
+        "text_chat",
+        "audio",
+        "live"
+      ]
+    },
+    {
+      "name": "Gemini 2.0 Flash Exp (Live)",
+      "id": "gemini-2.0-flash-exp",
+      "endpoint": "",
+      "context": 1048576,
+      "max_tokens": 65536,
+      "categories": [
+        "text_chat",
+        "audio",
+        "live"
+      ]
+    },
+    {
       "name": "Gemini Robotics ER 1.6 Preview",
       "id": "gemini-robotics-er-1.6-preview",
       "endpoint": "",
