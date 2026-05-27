@@ -4,17 +4,17 @@ import android.app.Activity;
 import android.content.BroadcastReceiver;
 import android.content.ClipData;
 import android.content.ClipboardManager;
-import android.content.ContentValues;
+import android.content.ContentValues; // Added for saving images
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
 import android.content.SharedPreferences;
-import android.graphics.Bitmap;
-import android.graphics.BitmapFactory;
+import android.graphics.Bitmap; // Added for image decoding
+import android.graphics.BitmapFactory; // Added for image decoding
 import android.net.Uri;
-import android.os.Build;
-import android.os.Environment;
-import android.provider.MediaStore;
+import android.os.Build; // Added for Scoped Storage compatibility
+import android.os.Environment; // Added for public directory
+import android.provider.MediaStore; // Added for saving images
 import android.speech.tts.TextToSpeech;
 import android.speech.tts.UtteranceProgressListener;
 import android.webkit.JavascriptInterface;
@@ -23,12 +23,12 @@ import android.widget.Toast;
 import android.util.Log;
 import android.webkit.CookieManager;
 
-import java.io.OutputStream;
-import java.io.IOException;
+import java.io.OutputStream; // Added for writing image data
+import java.io.IOException; // Added for exception handling
 import java.util.Locale;
 import java.util.Map;
-import java.util.Objects;
-import java.util.Date;
+import java.util.Objects; // Added for null checks on Objects
+import java.util.Date; // Added for unique file naming
 
 /**
  * The core bridge class between the HTML JavaScript and Native Android code.
@@ -43,6 +43,7 @@ import java.util.Date;
  * ENHANCED: Integrated Gemini model registries, settings drawer variables, and OkHttp stream dispatchers.
  * CRITICAL FIXES: Added explicit pause/resume microphone controls for Web Audio and resolved dual-STT mic conflicts.
  * LOG INTERCEPTOR FIX: Parses low-level browser diagnostic messages inside logDiagnostic to cleanly release duplicate mic locks.
+ * MIC RELEASE FIX: Automatically destroys the native background SpeechRecognizer context on startup and on handshake confirmation.
  */
 public class WebAppInterface {
 
@@ -349,7 +350,7 @@ public class WebAppInterface {
 
     // 4. FULL-SCREEN VOICE AGENT (Requirement #4)
     // Launches the native full-screen Activity for continuous conversation.
-    // MODIFIED: Programmatically halts the background VoiceManager context to release the mic hardware cleanly.
+    // MODIFIED: Programmatically destroys the background VoiceManager context to release the mic hardware lock completely.
     @JavascriptInterface
     public void startVoiceAgent() {
         nativeLog("Launching Immersive Full-Screen Voice Agent", "native");
@@ -357,11 +358,16 @@ public class WebAppInterface {
         // Force Voice Mode active for the full-screen activity
         setVoiceMode(true);
 
-        // De-register background STT recognizers in MainActivity to prevent mic capture wars
+        // De-register and DESTROY background STT recognizers in MainActivity to prevent mic capture wars (CRITICAL FIX)
         if (voiceManager != null) {
             ((Activity) context).runOnUiThread(() -> {
-                voiceManager.stopListening();
-                nativeLog("Background VoiceManager listening paused to yield mic hardware.", "native");
+                try {
+                    voiceManager.destroy(); // Cancel and destroy the background recognizer completely to free mic hardware
+                    voiceManager = null; // Clear the reference
+                    nativeLog("[LIFECYCLE] Background VoiceManager destroyed to yield mic hardware cleanly.", "native");
+                } catch (Exception e) {
+                    Log.e("WebAppInterface", "Failed to destroy background VoiceManager on launch: " + e.getMessage());
+                }
             });
         }
 
