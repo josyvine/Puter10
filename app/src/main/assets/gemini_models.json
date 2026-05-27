@@ -13,8 +13,8 @@
       ]
     },
     {
-      "name": "gemini-3.1-flash-live-preview (audio)",
-      "id": "gemini-3.1-flash-live-preview",
+      "name": "Gemini 2.0 Flash (audio)",
+      "id": "gemini-2.0-flash",
       "endpoint": "",
       "context": 1048576,
       "max_tokens": 65536,
@@ -23,7 +23,7 @@
         "audio"
       ],
       "setup": {
-        "model": "models/gemini-3.1-flash-live-preview",
+        "model": "models/gemini-2.0-flash",
         "generationConfig": {
           "responseModalities": ["AUDIO"]
         }
