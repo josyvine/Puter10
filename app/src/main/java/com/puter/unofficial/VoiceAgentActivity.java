@@ -104,14 +104,14 @@ public class VoiceAgentActivity extends AppCompatActivity {
         });
 
         // 2. Initialize Native STT
-        speechRecognizer = SpeechRecognizer.createSpeechRecognizer(this);
         recognizerIntent = new Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH);
         recognizerIntent.putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM);
         recognizerIntent.putExtra(RecognizerIntent.EXTRA_LANGUAGE, Locale.getDefault());
         // Required for barge-in: allows the recognizer to process sound while speakers are active
         recognizerIntent.putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true);
 
-        setupSTTListener();
+        // STT instance will be dynamically constructed inside startListening()
+        // to guarantee a clean hardware state.
 
         // 3. Setup Receiver to catch AI responses and Web Audio lifecycle triggers from WebAppInterface
         setupAiResponseReceiver();
@@ -244,6 +244,8 @@ public class VoiceAgentActivity extends AppCompatActivity {
     }
 
     private void setupSTTListener() {
+        if (speechRecognizer == null) return;
+
         speechRecognizer.setRecognitionListener(new RecognitionListener() {
             @Override
             public void onReadyForSpeech(Bundle params) {
@@ -273,19 +275,19 @@ public class VoiceAgentActivity extends AppCompatActivity {
                     sendBroadcast(stopIntent);
 
                     /* 
-                     * REQUIREMENT: Reset the audio buffer immediately.
-                     * We cycle the recognizer to ensure that the AI's audio residue 
-                     * is purged and the user's first words are captured clearly.
+                     * REQUIREMENT: Deep Hardware Reset
+                     * Destroys and recreates the recognizer instead of just canceling it. 
+                     * This prevents ERROR_CLIENT (5) ghost-locks that kill the microphone after barge-ins.
                      */
-                    hardwareHandler.postDelayed(() -> {
-                        if (isListening) {
-                            if (speechRecognizer != null) {
-                                speechRecognizer.cancel();
-                            }
-                            isListening = false;
-                            startListening();
+                    hardwareHandler.post(() -> {
+                        if (speechRecognizer != null) {
+                            try { speechRecognizer.cancel(); } catch (Exception e) {}
+                            try { speechRecognizer.destroy(); } catch (Exception e) {}
+                            speechRecognizer = null;
                         }
-                    }, 50); // Minimal delay to allow audio focus release
+                        isListening = false;
+                        hardwareHandler.postDelayed(() -> startListening(), 150); // Buffer for hardware unlock
+                    });
                 } else {
                     // STT remains un-cancelled, letting transcription run cleanly
                     WebAppInterface.DiagnosticLogger.log("[STT] AI is silent. Letting user's voice transcribe normally.");
@@ -317,29 +319,28 @@ public class VoiceAgentActivity extends AppCompatActivity {
                 
                 // Translate the raw error code into clear diagnostic descriptions
                 String errorDescription;
-                boolean shouldAutoRestart = false;
+                boolean shouldAutoRestart = true; // Default to true to ensure Always-On capabilities
 
                 switch (error) {
                     case SpeechRecognizer.ERROR_SPEECH_TIMEOUT:
                         errorDescription = "ERROR_SPEECH_TIMEOUT";
-                        shouldAutoRestart = true;
                         break;
                     case SpeechRecognizer.ERROR_NO_MATCH:
                         errorDescription = "ERROR_NO_MATCH";
-                        shouldAutoRestart = true;
                         break;
                     case SpeechRecognizer.ERROR_RECOGNIZER_BUSY:
                         errorDescription = "ERROR_RECOGNIZER_BUSY";
-                        shouldAutoRestart = true;
                         break;
                     case SpeechRecognizer.ERROR_AUDIO:
                         errorDescription = "ERROR_AUDIO_RECORD";
                         break;
                     case SpeechRecognizer.ERROR_CLIENT:
                         errorDescription = "ERROR_CLIENT_SIDE";
+                        // This error happens when cancel() is called. Restarting is mandatory.
                         break;
                     case SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS:
                         errorDescription = "ERROR_MIC_PERMISSIONS_DENIED";
+                        shouldAutoRestart = false; // Cannot recover from lack of permissions
                         break;
                     default:
                         errorDescription = "UNKNOWN_ERROR_CODE_" + error;
@@ -348,13 +349,17 @@ public class VoiceAgentActivity extends AppCompatActivity {
 
                 WebAppInterface.DiagnosticLogger.log("[STT ERROR] Mic receiver reported: " + errorDescription);
 
-                // REQUIREMENT: Auto-restart listening on timeouts/silence to maintain "Always On"
+                // REQUIREMENT: Deep Re-initialization on Errors to flush corrupted OS states
                 if (shouldAutoRestart) {
-                    WebAppInterface.DiagnosticLogger.log("[RECOVERY] Restarting microphone interface...");
-                    if (speechRecognizer != null) {
-                        speechRecognizer.cancel();
-                    }
-                    hardwareHandler.postDelayed(() -> startListening(), 100);
+                    WebAppInterface.DiagnosticLogger.log("[RECOVERY] Hard-Restarting microphone interface...");
+                    hardwareHandler.post(() -> {
+                        if (speechRecognizer != null) {
+                            try { speechRecognizer.cancel(); } catch (Exception e) {}
+                            try { speechRecognizer.destroy(); } catch (Exception e) {}
+                            speechRecognizer = null;
+                        }
+                        hardwareHandler.postDelayed(() -> startListening(), 150);
+                    });
                 } else {
                     tvStatus.setText("Tap mic to try again");
                     Log.e(TAG, "STT Critical Error: " + error);
@@ -419,10 +424,12 @@ public class VoiceAgentActivity extends AppCompatActivity {
                         // Only perform dynamic hardware resets if the WebView WebRTC capture is NOT active
                         if (!WebAppInterface.isLiveSocketActive) {
                             if (speechRecognizer != null) {
-                                speechRecognizer.cancel();
+                                try { speechRecognizer.cancel(); } catch (Exception e) {}
+                                try { speechRecognizer.destroy(); } catch (Exception e) {}
+                                speechRecognizer = null;
                             }
                             isListening = false;
-                            startListening();
+                            hardwareHandler.postDelayed(() -> startListening(), 100);
                         } else {
                             // If WebSockets Live API is handling the mic, we simply transition the status back to Ready
                             tvStatus.setText("Listening...");
@@ -435,7 +442,7 @@ public class VoiceAgentActivity extends AppCompatActivity {
                         tvStatus.setText("Puter is speaking...");
                         // Only close the native hardware STT if WebRTC is not active (to avoid double locks)
                         if (!WebAppInterface.isLiveSocketActive && speechRecognizer != null) {
-                            speechRecognizer.cancel();
+                            try { speechRecognizer.cancel(); } catch (Exception e) {}
                             isListening = false;
                         }
                     });
@@ -447,18 +454,9 @@ public class VoiceAgentActivity extends AppCompatActivity {
                             // Live WebSocket connection established. Completely shutdown and release the native 
                             // SpeechRecognizer with layered teardown (Fix 2) to free the hardware microphone lock.
                             if (speechRecognizer != null) {
-                                try {
-                                    speechRecognizer.stopListening();
-                                } catch (Exception ignored) {}
-
-                                try {
-                                    speechRecognizer.cancel();
-                                } catch (Exception ignored) {}
-
-                                try {
-                                    speechRecognizer.destroy();
-                                } catch (Exception ignored) {}
-                                
+                                try { speechRecognizer.stopListening(); } catch (Exception ignored) {}
+                                try { speechRecognizer.cancel(); } catch (Exception ignored) {}
+                                try { speechRecognizer.destroy(); } catch (Exception ignored) {}
                                 speechRecognizer = null;
                             }
                             isListening = false;
@@ -511,14 +509,8 @@ public class VoiceAgentActivity extends AppCompatActivity {
         
         // STEP 1: FULL MIC RELEASE (Fix 1 Layered Teardown)
         if (speechRecognizer != null) {
-            try {
-                speechRecognizer.stopListening();
-            } catch (Exception ignored) {}
-
-            try {
-                speechRecognizer.cancel();
-            } catch (Exception ignored) {}
-
+            try { speechRecognizer.stopListening(); } catch (Exception ignored) {}
+            try { speechRecognizer.cancel(); } catch (Exception ignored) {}
             try {
                 speechRecognizer.destroy();
                 WebAppInterface.DiagnosticLogger.log("[LIFECYCLE] Destroyed active native SpeechRecognizer context on dispatch.");
@@ -579,13 +571,18 @@ public class VoiceAgentActivity extends AppCompatActivity {
                     setupSTTListener();
                     WebAppInterface.DiagnosticLogger.log("[STT] Re-initialized active SpeechRecognizer context.");
                 }
-                // REMOVED speechRecognizer.cancel() (Fix 3) immediately before startListening to prevent client-side loop errors
                 speechRecognizer.startListening(recognizerIntent);
                 isListening = true;
             } catch (Exception e) {
                 Log.e(TAG, "Error starting recognizer: " + e.getMessage());
                 WebAppInterface.DiagnosticLogger.log("[ERROR] Speech recognizer initialization failed: " + e.getMessage());
                 isListening = false;
+                
+                // If the hardware failed to bind, destroy the corrupted instance and retry
+                if (speechRecognizer != null) {
+                    try { speechRecognizer.destroy(); } catch (Exception ex) {}
+                    speechRecognizer = null;
+                }
                 // Retry after a short delay if hardware is locked
                 hardwareHandler.postDelayed(() -> startListening(), 500);
             }
@@ -594,10 +591,16 @@ public class VoiceAgentActivity extends AppCompatActivity {
 
     private void toggleListening() {
         if (isListening) {
-            speechRecognizer.stopListening();
+            if (speechRecognizer != null) {
+                try { speechRecognizer.cancel(); } catch (Exception e) {}
+                try { speechRecognizer.destroy(); } catch (Exception e) {}
+                speechRecognizer = null;
+            }
+            isListening = false;
             WebAppInterface.DiagnosticLogger.log("[STT] Listening manually paused.");
+            tvStatus.setText("Tap mic to speak");
         } else {
-            if (tts.isSpeaking()) {
+            if (tts != null && tts.isSpeaking()) {
                 tts.stop();
                 isAIspeaking = false;
                 isAiSpeakingOrPlaying = false;
@@ -611,14 +614,10 @@ public class VoiceAgentActivity extends AppCompatActivity {
         super.onPause();
         // Prevent mic hanging in background using isolated teardown blocks (Fix 4)
         if (speechRecognizer != null) {
-            try {
-                speechRecognizer.stopListening();
-            } catch (Exception ignored) {}
-
-            try {
-                speechRecognizer.cancel();
-            } catch (Exception ignored) {}
-            
+            try { speechRecognizer.stopListening(); } catch (Exception ignored) {}
+            try { speechRecognizer.cancel(); } catch (Exception ignored) {}
+            try { speechRecognizer.destroy(); } catch (Exception ignored) {}
+            speechRecognizer = null;
             isListening = false;
         }
     }
@@ -631,8 +630,8 @@ public class VoiceAgentActivity extends AppCompatActivity {
 
         if (aiResponseReceiver != null) unregisterReceiver(aiResponseReceiver);
         if (speechRecognizer != null) {
-            speechRecognizer.cancel();
-            speechRecognizer.destroy();
+            try { speechRecognizer.cancel(); } catch (Exception e) {}
+            try { speechRecognizer.destroy(); } catch (Exception e) {}
             speechRecognizer = null;
         }
         if (tts != null) {
