@@ -5,6 +5,7 @@ import android.app.Dialog;
 import android.content.Intent;
 import android.graphics.Color;
 import android.net.Uri;
+import android.os.Build;
 import android.os.Message;
 import android.provider.MediaStore;
 import android.util.Log;
@@ -12,6 +13,7 @@ import android.view.ViewGroup;
 import android.webkit.ConsoleMessage;
 import android.webkit.CookieManager;
 import android.webkit.JavascriptInterface;
+import android.webkit.PermissionRequest;
 import android.webkit.ValueCallback;
 import android.webkit.WebChromeClient;
 import android.webkit.WebResourceRequest;
@@ -229,6 +231,25 @@ public class MyWebChromeClient extends WebChromeClient {
             authDialog = null;
         }
         super.onCloseWindow(window);
+    }
+
+    // --- HARDWARE PERMISSIONS GATE OVERRIDE ---
+
+    /**
+     * Intercepts standard HTML5 permission queries (such as Camera & Microphone).
+     * Grants matching permissions cleanly to prevent WebRTC/getUserMedia silent halts.
+     */
+    @Override
+    public void onPermissionRequest(final PermissionRequest request) {
+        Log.d(TAG, "onPermissionRequest: Processing hardware capture access permission.");
+        activity.runOnUiThread(new Runnable() {
+            @Override
+            public void run() {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+                    request.grant(request.getResources());
+                }
+            }
+        });
     }
 
     // --- FILE UPLOAD LOGIC (UNCHANGED) ---
