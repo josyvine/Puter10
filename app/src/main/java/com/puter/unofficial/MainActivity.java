@@ -68,9 +68,6 @@ public class MainActivity extends AppCompatActivity {
     private final android.os.Handler scrapeHandler = new android.os.Handler(android.os.Looper.getMainLooper());
     private Runnable scrapeTimeoutRunnable;
 
-    // Receiver to catch results from the Full-Screen Voice Agent Activity
-    private BroadcastReceiver voiceReceiver;
-
     private final static int FILE_CHOOSER_RESULT_CODE = 1;
     private final static int PERMISSION_REQUEST_CODE = 100;
 
@@ -234,9 +231,6 @@ public class MainActivity extends AppCompatActivity {
         // Load the frontend via the Secure Origin Asset Loader
         webView.loadUrl(AppConstants.LOCAL_INDEX_URL);
 
-        // --- Native Voice Loop Setup ---
-        setupVoiceReceiver();
-
         // Check and Request System Permissions
         checkAndRequestPermissions();
     }
@@ -343,44 +337,6 @@ public class MainActivity extends AppCompatActivity {
     }
 
     /**
-     * Requirement #3: Voice Agent Communication.
-     * Listens for the "PUTER_VOICE_INPUT" broadcast from VoiceAgentActivity.
-     * When the full-screen mode finishes a turn, it injects the text here.
-     */
-    private void setupVoiceReceiver() {
-        voiceReceiver = new BroadcastReceiver() {
-            @Override
-            public void onReceive(Context context, Intent intent) {
-                if ("PUTER_VOICE_INPUT".equals(intent.getAction())) {
-                    String query = intent.getStringExtra("QUERY");
-                    if (query != null) {
-                        Log.d("MainActivity", "Voice Input Received: " + query);
-                        injectSpeechToWebView(query);
-                    }
-                }
-            }
-        };
-        IntentFilter filter = new IntentFilter("PUTER_VOICE_INPUT");
-
-        // Android 13+ compatibility for exported receivers
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            registerReceiver(voiceReceiver, filter, Context.RECEIVER_EXPORTED);
-        } else {
-            registerReceiver(voiceReceiver, filter);
-        }
-    }
-
-    /**
-     * Requirement #1: Broadcast AI response text back to VoiceAgentActivity.
-     */
-    public void broadcastAiResponse(String text) {
-        Intent intent = new Intent("PUTER_AI_RESPONSE");
-        intent.putExtra("RESPONSE_TEXT", text);
-        sendBroadcast(intent);
-        Log.d("MainActivity", "AI Response Broadcasted to Native Agent");
-    }
-
-    /**
      * Requirement #3: Injects spoken text into the index.html logic.
      */
     private void injectSpeechToWebView(String text) {
@@ -439,7 +395,7 @@ public class MainActivity extends AppCompatActivity {
 
     @Override
     public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions, @NonNull int[] grantResults) {
-        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+        super.onCreate(savedInstanceState);
         if (requestCode == PERMISSION_REQUEST_CODE) {
             boolean allGranted = true;
             boolean notificationPermissionGranted = true;
@@ -556,57 +512,27 @@ public class MainActivity extends AppCompatActivity {
 
     /**
      * Lifecycle hook called when the Activity is paused.
-     * 
-     * CRITICAL FIX: Completely destroys and cancels the background standard VoiceManager's 
-     * SpeechRecognizer context to release the hardware microphone lock. stopListening() is not enough.
+     * We preserve super lifecycle states cleanly without managing standard voice loops.
      */
     @Override
     protected void onPause() {
         super.onPause();
-        
-        // De-register background STT recognizers in MainActivity to prevent hardware conflicts
-        if (voiceManager != null) {
-            try {
-                voiceManager.destroy(); // Completely cancel and destroy the recognizer to release the mic
-                Log.d("MainActivity", "onPause: Destroyed background voiceManager to release hardware lock.");
-            } catch (Exception e) {
-                Log.e("MainActivity", "Failed to destroy standard background VoiceManager: " + e.getMessage());
-            }
-            voiceManager = null; // Clear the reference to force a clean re-initialization on resume
-        }
     }
 
     /**
      * Lifecycle hook called when the Activity returns to focus.
-     * 
-     * CRITICAL FIX: Automatically re-initializes the standard background VoiceManager 
-     * instance on resume to restore speech dictation capabilities for standard chat mode.
+     * We preserve super lifecycle states cleanly without managing standard voice loops.
      */
     @Override
     protected void onResume() {
         super.onResume();
-        
-        // Re-initialize the background VoiceManager when MainActivity returns to focus
-        if (voiceManager == null && webView != null) {
-            try {
-                voiceManager = new VoiceManager(this, webView);
-                if (webAppInterface != null) {
-                    webAppInterface.setVoiceManager(voiceManager);
-                }
-                Log.d("MainActivity", "onResume: Re-initialized background voiceManager context.");
-            } catch (Exception e) {
-                Log.e("MainActivity", "Failed to re-initialize standard background VoiceManager: " + e.getMessage());
-            }
-        }
     }
 
     @Override
     protected void onDestroy() {
         // Cleanup Native Resources
-        if (voiceReceiver != null) {
-            unregisterReceiver(voiceReceiver);
-        }
         if (webView != null) {
+            webView.stopLoading();
             webView.destroy();
         }
         if (voiceManager != null) {
