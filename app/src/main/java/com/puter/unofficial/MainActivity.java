@@ -48,6 +48,7 @@ import java.util.Locale; // Added for native TTS Locale
  * UPDATED: Integrated runtime POST_NOTIFICATIONS check and startForegroundService.
  * CRITICAL LIFECYCLE FIXES: Implemented clean onPause microphone release and onResume STT context recreation.
  * TTS INTEGRATION: Implemented TextToSpeech.OnInitListener to handle native vocalization fallbacks.
+ * ENHANCED DIAGNOSTICS: Added explicit millisecond-precise trace logging for permissions, TTS, and core transitions.
  */
 public class MainActivity extends AppCompatActivity implements TextToSpeech.OnInitListener {
 
@@ -84,6 +85,9 @@ public class MainActivity extends AppCompatActivity implements TextToSpeech.OnIn
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
 
+        Log.d("MainActivity", "onCreate: Instantiating Primary Activity View context.");
+        ActionReportLogger.logAction("LIFECYCLE", "onCreate: Main Activity initialized.");
+
         // REQUIREMENT: Force White/Light Theme at the Activity Level
         setTheme(androidx.appcompat.R.style.Theme_AppCompat_Light_NoActionBar);
 
@@ -109,8 +113,10 @@ public class MainActivity extends AppCompatActivity implements TextToSpeech.OnIn
                      .putString(AppConstants.KEY_NOSTR_PUBLIC_KEY, keys[1])
                      .apply();
                 Log.d("MainActivity", "Identity Handshake: Generated new secure Nostr keypair. PubKey: " + keys[1]);
+                ActionReportLogger.logAction("IDENTITY_HANDSHAKE", "Generated secure cryptographic Nostr keys.");
             } catch (Exception e) {
                 Log.e("MainActivity", "Identity Handshake: Cryptographic key generation failed", e);
+                ActionReportLogger.logError("IDENTITY_HANDSHAKE_FAIL", "Key generation failed: " + e.getMessage());
             }
         }
 
@@ -236,6 +242,7 @@ public class MainActivity extends AppCompatActivity implements TextToSpeech.OnIn
         checkAndRequestPermissions();
 
         // Initialize the Native Text-to-Speech Engine
+        Log.d("MainActivity", "onCreate: Initializing native TextToSpeech engine.");
         tts = new TextToSpeech(this, this);
     }
 
@@ -244,17 +251,22 @@ public class MainActivity extends AppCompatActivity implements TextToSpeech.OnIn
      */
     @Override
     public void onInit(int status) {
+        Log.d("MainActivity", "onInit: TTS callback entered with status: " + status);
+        ActionReportLogger.logAction("TTS_INIT", "onInit callback entered. Status: " + status);
         if (status == TextToSpeech.SUCCESS) {
             int result = tts.setLanguage(Locale.US);
             if (result == TextToSpeech.LANG_MISSING_DATA || result == TextToSpeech.LANG_NOT_SUPPORTED) {
-                Log.e("MainActivity", "TTS Init Error: Language is not supported or missing resources.");
+                Log.e("MainActivity", "TTS Init Error: Language is not supported or missing resources. Code: " + result);
+                ActionReportLogger.logError("TTS_INIT_FAIL", "Locale not supported or missing resources. Code: " + result);
                 isTtsInitialized = false;
             } else {
                 isTtsInitialized = true;
                 Log.d("MainActivity", "TTS Engine successfully initialized with US Locale.");
+                ActionReportLogger.logAction("TTS_INIT_SUCCESS", "TTS successfully synchronized with US Locale.");
             }
         } else {
             Log.e("MainActivity", "TTS Engine initialization failed with status: " + status);
+            ActionReportLogger.logError("TTS_INIT_FAILED_STATUS", "Engine initialization failed. Code: " + status);
             isTtsInitialized = false;
         }
     }
@@ -266,9 +278,11 @@ public class MainActivity extends AppCompatActivity implements TextToSpeech.OnIn
     public void speak(String text) {
         if (isTtsInitialized && tts != null) {
             Log.d("MainActivity", "Executing native speak vocalization.");
+            ActionReportLogger.logAction("TTS_SPEAK", "Native speak payload accepted. Length: " + (text != null ? text.length() : 0));
             tts.speak(text, TextToSpeech.QUEUE_FLUSH, null, AppConstants.TTS_UTTERANCE_ID);
         } else {
             Log.w("MainActivity", "Native speak aborted: TTS Engine is not initialized or ready.");
+            ActionReportLogger.logError("TTS_SPEAK_ABORTED", "Speak aborted. Initialization state: " + isTtsInitialized);
             Toast.makeText(this, "Native Speech Engine is not ready.", Toast.LENGTH_SHORT).show();
         }
     }
@@ -434,11 +448,18 @@ public class MainActivity extends AppCompatActivity implements TextToSpeech.OnIn
     @Override
     public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions, @NonNull int[] grantResults) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+        Log.d("MainActivity", "onRequestPermissionsResult: Received callback for request code: " + requestCode);
+        ActionReportLogger.logAction("PERMISSIONS", "onRequestPermissionsResult callback initiated. Code: " + requestCode);
+
         if (requestCode == PERMISSION_REQUEST_CODE) {
             boolean allGranted = true;
             boolean notificationPermissionGranted = true;
 
             for (int i = 0; i < permissions.length; i++) {
+                boolean granted = grantResults[i] == PackageManager.PERMISSION_GRANTED;
+                Log.d("MainActivity", "Permission: " + permissions[i] + " Status: " + (granted ? "GRANTED" : "DENIED"));
+                ActionReportLogger.logAction("PERMISSIONS_DETAIL", "Permission: " + permissions[i] + " Status: " + (granted ? "GRANTED" : "DENIED"));
+
                 if (grantResults[i] != PackageManager.PERMISSION_GRANTED) {
                     allGranted = false;
                     if (Manifest.permission.POST_NOTIFICATIONS.equals(permissions[i])) {
@@ -448,7 +469,12 @@ public class MainActivity extends AppCompatActivity implements TextToSpeech.OnIn
             }
 
             if (!allGranted) {
+                Log.w("MainActivity", "Warning: One or more requested runtime permissions were denied by the user.");
+                ActionReportLogger.logHtmlGlitch("PERMISSIONS_DENIED", "One or more requested permissions were denied.");
                 Toast.makeText(this, "Voice and Image features require permissions.", Toast.LENGTH_SHORT).show();
+            } else {
+                Log.d("MainActivity", "All requested permissions successfully granted.");
+                ActionReportLogger.logAction("PERMISSIONS_GRANTED", "All hardware permissions successfully verified.");
             }
 
             // Start foreground watcher service safely once notification permissions are resolved or on older devices
@@ -555,6 +581,8 @@ public class MainActivity extends AppCompatActivity implements TextToSpeech.OnIn
     @Override
     protected void onPause() {
         super.onPause();
+        Log.d("MainActivity", "onPause: Activity entered background.");
+        ActionReportLogger.logAction("LIFECYCLE", "onPause: Activity entered background.");
     }
 
     /**
@@ -564,15 +592,21 @@ public class MainActivity extends AppCompatActivity implements TextToSpeech.OnIn
     @Override
     protected void onResume() {
         super.onResume();
+        Log.d("MainActivity", "onResume: Activity returned to foreground.");
+        ActionReportLogger.logAction("LIFECYCLE", "onResume: Activity returned to foreground.");
     }
 
     @Override
     protected void onDestroy() {
+        Log.d("MainActivity", "onDestroy: Releasing native TextToSpeech and cleanup.");
+        ActionReportLogger.logAction("LIFECYCLE", "onDestroy: Terminating activity.");
+
         // Cleanup TextToSpeech safely to avoid memory leak conditions
         if (tts != null) {
             tts.stop();
             tts.shutdown();
             Log.d("MainActivity", "Native TTS Engine successfully terminated.");
+            ActionReportLogger.logAction("TTS_SHUTDOWN", "TextToSpeech engine cleanly released.");
         }
 
         // Cleanup Native Resources
