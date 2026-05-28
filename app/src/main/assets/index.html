@@ -1226,16 +1226,10 @@
                 }
             };
             div.onpointerup = () => {
-                if (pressTimer) {
-                    clearTimeout(pressTimer);
-                    pressTimer = null;
-                }
+                if (pressTimer) { clearTimeout(pressTimer); pressTimer = null; }
             };
             div.onpointercancel = () => {
-                if (pressTimer) {
-                    clearTimeout(pressTimer);
-                    pressTimer = null;
-                }
+                if (pressTimer) { clearTimeout(pressTimer); pressTimer = null; }
             };
             div.oncontextmenu = (e) => e.preventDefault();
 
