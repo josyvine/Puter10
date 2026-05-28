@@ -529,7 +529,7 @@ public class VoiceAgentActivity extends AppCompatActivity {
                 } else if ("PUTER_USER_TRANSCRIPT".equals(action)) {
                     String text = intent.getStringExtra("TEXT");
                     if (text != null) {
-                        WebAppInterface.DiagnosticLogger.log("[INTENT] Received PUTER_USER_TRANSCRIPT. Transcript: " + text);
+                        WebAppInterface.DiagnosticLogger.log("[INTENT] Received PUTER_USER_TRANSCRIPT: " + text);
                         runOnUiThread(() -> {
                             tvTranscript.setText(text);
                             tvStatus.setText("Puter is thinking...");
@@ -717,6 +717,17 @@ public class VoiceAgentActivity extends AppCompatActivity {
 
     @Override
     protected void onDestroy() {
+        // Send a native broadcast informing the persistent WebAppInterface that the dashboard session has ended [1]
+        WebAppInterface.DiagnosticLogger.log("VoiceAgentActivity: onDestroy event triggered. Dashboard closing. Broadcasting PUTER_VOICE_DASHBOARD_CLOSED intent.");
+        try {
+            Intent closeIntent = new Intent("PUTER_VOICE_DASHBOARD_CLOSED");
+            sendBroadcast(closeIntent);
+            WebAppInterface.DiagnosticLogger.log("onDestroy: Successfully broadcasted PUTER_VOICE_DASHBOARD_CLOSED.");
+        } catch (Exception e) {
+            WebAppInterface.DiagnosticLogger.log("onDestroy Error: Failed to broadcast close intent: " + e.getMessage());
+        }
+
+        // Cleanup native visual/HUD hooks and listeners
         WebAppInterface.DiagnosticLogger.log("VoiceAgentActivity: onDestroy event triggered. Dashboard closing.");
         // MODIFIED: Remove static telemetry hook to manage references
         WebAppInterface.DiagnosticLogger.setListener(null);
