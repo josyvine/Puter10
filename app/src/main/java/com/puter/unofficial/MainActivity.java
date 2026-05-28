@@ -11,6 +11,7 @@ import android.graphics.Color;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
+import android.speech.tts.TextToSpeech; // Added for native TTS fallback
 import android.webkit.CookieManager;
 import android.webkit.ValueCallback;
 import android.webkit.WebChromeClient;
@@ -35,6 +36,7 @@ import com.google.android.material.floatingactionbutton.FloatingActionButton;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale; // Added for native TTS Locale
 
 /**
  * MainActivity: The primary host for the Puter Unofficial WebView.
@@ -45,13 +47,18 @@ import java.util.List;
  * are converted to Base64 and sent to the stagedFiles UI.
  * UPDATED: Integrated runtime POST_NOTIFICATIONS check and startForegroundService.
  * CRITICAL LIFECYCLE FIXES: Implemented clean onPause microphone release and onResume STT context recreation.
+ * TTS INTEGRATION: Implemented TextToSpeech.OnInitListener to handle native vocalization fallbacks.
  */
-public class MainActivity extends AppCompatActivity {
+public class MainActivity extends AppCompatActivity implements TextToSpeech.OnInitListener {
 
     private WebView webView;
     private ValueCallback<Uri[]> uploadMessage;
     private WebAppInterface webAppInterface;
     private MyWebChromeClient myWebChromeClient; // Custom client for popups/uploads
+
+    // Native Text-to-Speech Fallback Variables
+    private TextToSpeech tts;
+    private boolean isTtsInitialized = false;
 
     // Native Browser Control Panel Views
     private LinearLayout browserToolbar;
@@ -227,6 +234,43 @@ public class MainActivity extends AppCompatActivity {
 
         // Check and Request System Permissions
         checkAndRequestPermissions();
+
+        // Initialize the Native Text-to-Speech Engine
+        tts = new TextToSpeech(this, this);
+    }
+
+    /**
+     * Initializes the native TextToSpeech engine and sets the default Locale.
+     */
+    @Override
+    public void onInit(int status) {
+        if (status == TextToSpeech.SUCCESS) {
+            int result = tts.setLanguage(Locale.US);
+            if (result == TextToSpeech.LANG_MISSING_DATA || result == TextToSpeech.LANG_NOT_SUPPORTED) {
+                Log.e("MainActivity", "TTS Init Error: Language is not supported or missing resources.");
+                isTtsInitialized = false;
+            } else {
+                isTtsInitialized = true;
+                Log.d("MainActivity", "TTS Engine successfully initialized with US Locale.");
+            }
+        } else {
+            Log.e("MainActivity", "TTS Engine initialization failed with status: " + status);
+            isTtsInitialized = false;
+        }
+    }
+
+    /**
+     * Vocalizes the provided text string natively utilizing the Android TTS framework.
+     * Satisfies the Tier 1 fallback specification for the Read Aloud requirement.
+     */
+    public void speak(String text) {
+        if (isTtsInitialized && tts != null) {
+            Log.d("MainActivity", "Executing native speak vocalization.");
+            tts.speak(text, TextToSpeech.QUEUE_FLUSH, null, AppConstants.TTS_UTTERANCE_ID);
+        } else {
+            Log.w("MainActivity", "Native speak aborted: TTS Engine is not initialized or ready.");
+            Toast.makeText(this, "Native Speech Engine is not ready.", Toast.LENGTH_SHORT).show();
+        }
     }
 
     /**
@@ -524,6 +568,13 @@ public class MainActivity extends AppCompatActivity {
 
     @Override
     protected void onDestroy() {
+        // Cleanup TextToSpeech safely to avoid memory leak conditions
+        if (tts != null) {
+            tts.stop();
+            tts.shutdown();
+            Log.d("MainActivity", "Native TTS Engine successfully terminated.");
+        }
+
         // Cleanup Native Resources
         if (webView != null) {
             webView.stopLoading();
