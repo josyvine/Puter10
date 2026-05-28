@@ -134,6 +134,8 @@
 
     /* --- FIXED SEARCH BAR CSS WITH DYNAMIC TRANSFORM --- */
     .chat-controls { position: fixed; bottom: 0; left: 0; width: 100%; background: #fff; padding: 10px; z-index: 110; border-top: 1px solid #ddd; }
+    
+    /* FIX: Repaired border rules from 'border: Dadce0' back to 'border: 1px solid #dadce0' */
     .search-bar-container { display: flex; flex-direction: column; width: 100%; max-width: 600px; border-radius: 28px; background-color: white; box-shadow: 0 1px 4px rgba(0, 0, 0, 0.15); padding: 6px 10px; position: relative; min-height: 56px; height: auto !important; border: 1px solid #dadce0; margin: 0 auto; transition: all 0.2s ease; }
 
     /* --- NEW FEATURE: THUMBNAIL CONTAINER --- */
@@ -2130,16 +2132,10 @@
             }
         };
         div.onpointerup = () => {
-            if (pressTimer) {
-                clearTimeout(pressTimer);
-                pressTimer = null;
-            }
+            if (pressTimer) { clearTimeout(pressTimer); pressTimer = null; }
         };
         div.onpointercancel = () => {
-            if (pressTimer) {
-                clearTimeout(pressTimer);
-                pressTimer = null;
-            }
+            if (pressTimer) { clearTimeout(pressTimer); pressTimer = null; }
         };
         div.oncontextmenu = (e) => e.preventDefault();
 
@@ -2383,8 +2379,12 @@
                 alert("Please configure a valid Gemini Access API key first in Settings.");
                 return;
             }
-            if (liveWs && window.AndroidInterface) {
-                sendLiveTextQuery(promptText, files);
+            if (liveWs && (liveWs.readyState === WebSocket.OPEN || liveWs.readyState === WebSocket.CONNECTING)) {
+                if (liveWs.readyState === WebSocket.OPEN) {
+                    sendLiveTextQuery(promptText, files);
+                } else {
+                    pendingLiveQuery = { text: promptText, files: files };
+                }
             } else {
                 pendingLiveQuery = { text: promptText, files: files };
                 connectWebSocketLive(apiKey, modelId, voiceName, useSearch);
@@ -2736,238 +2736,93 @@
         textContainer.appendChild(ttsBtn);
     }
 
-    function saveCustom() {
-      customInstruction = document.getElementById('customInput').value;
-      localStorage.setItem('puter_custom_ins', customInstruction);
-      console.log("Custom Instruction Saved.");
-      closeModal('customModal');
-    }
+    /* --- ADOPTED WEBSOCKET LIVE AUDIO ROUTING PIPELINES --- */
+    function connectWebSocketLive(apiKey, modelId, voiceName, useSearch) {
+        // Set the transitional setup flag before triggering the reset cleanup [1]
+        window.isConnectingLiveSocket = true;
 
-    function toggleSettingsUI() {
-      const bar = document.getElementById('settingsBar');
-      const btn = document.getElementById('toggleSettingsBtn');
-      if(bar.style.display === 'none') {
-        bar.style.display = 'block';
-        btn.textContent = "Hide Settings";
-      } else {
-        bar.style.display = 'none';
-        btn.textContent = "Show Settings";
-      }
-    }
+        disconnectWebSocketLive();
 
-    function newSession() {
-      currentSessionId = Date.now().toString();
-      localStorage.setItem('puter_current_session_id', currentSessionId);
-
-      document.getElementById('puterChatLog').innerHTML = '';
-      chatHistory = [];
-      clearFiles();
-
-      if (window.AndroidInterface && window.AndroidInterface.clearBackgroundTabs) {
-          window.AndroidInterface.clearBackgroundTabs();
-      }
-
-      console.log("New Session ID generated: " + currentSessionId);
-      if (window.AndroidInterface && window.AndroidInterface.showToast) {
-          window.AndroidInterface.showToast("New Session Started");
-      } else {
-          alert("New Session Started");
-      }
-    }
-
-    function handleLanguageInput(value) {
-        const cleanedValue = value.trim();
-        if (cleanedValue) {
-            localStorage.setItem("puter_target_language", cleanedValue);
-            console.log("Saved language:", cleanedValue);
-            if (window.AndroidInterface && window.AndroidInterface.showToast) {
-                window.AndroidInterface.showToast("Reply language set to " + cleanedValue);
-            }
-        } else {
-            localStorage.removeItem("puter_target_language");
-        }
-    }
-
-    function toggleGeminiDrawer() {
-        const drawer = document.getElementById("geminiSettingsDrawer");
-        const chevron = document.getElementById("geminiDrawerChevron");
-        if (drawer.style.display === "none" || drawer.style.display === "") {
-            drawer.style.display = "flex";
-            chevron.textContent = "expand_less";
-        } else {
-            drawer.style.display = "none";
-            chevron.textContent = "expand_more";
-        }
-    }
-
-    function handleGeminiApiKeyChange(value) {
-        if (window.AndroidInterface && window.AndroidInterface.saveGeminiApiKey) {
-            window.AndroidInterface.saveGeminiApiKey(value.trim());
-        }
-        localStorage.setItem("gemini_user_api_key", value.trim());
-    }
-
-    function handleGeminiStreamToggle(checked) {
-        if (window.AndroidInterface && window.AndroidInterface.setGeminiStreaming) {
-            window.AndroidInterface.setGeminiStreaming(checked);
-        }
-    }
-
-    function handleGeminiGroundingChange(value) {
-        if (window.AndroidInterface && window.AndroidInterface.setGeminiGrounding) {
-            window.AndroidInterface.setGeminiGrounding(value);
-        }
-    }
-
-    function handleGeminiVoiceChange(value) {
-        localStorage.setItem("gemini_user_voice", value);
-        if (window.AndroidInterface && window.AndroidInterface.saveGeminiVoice) {
-            window.AndroidInterface.saveGeminiVoice(value);
-        }
-    }
-
-    function syncGeminiUIState() {
-        const divider = document.getElementById("geminiMenuDivider");
-        const header = document.getElementById("geminiToggleDrawerHeader");
-        const drawer = document.getElementById("geminiSettingsDrawer");
-        
-        if (activeProvider === "Gemini") {
-            if (divider) divider.style.display = "block";
-            if (header) header.style.display = "flex";
-            if (window.AndroidInterface) {
-                const apiKey = window.AndroidInterface.getGeminiApiKey ? window.AndroidInterface.getGeminiApiKey() : localStorage.getItem("gemini_user_api_key");
-                document.getElementById("geminiApiKeyInput").value = apiKey || "";
-                
-                const stream = window.AndroidInterface.getGeminiStreaming ? window.AndroidInterface.getGeminiStreaming() : true;
-                document.getElementById("geminiStreamToggle").checked = stream;
-                
-                const grounding = window.AndroidInterface.getGeminiGrounding ? window.AndroidInterface.getGeminiGrounding() : "none";
-                document.getElementById("geminiGroundingSelect").value = grounding || "none";
-
-                const voice = window.AndroidInterface.getGeminiVoice ? window.AndroidInterface.getGeminiVoice() : (localStorage.getItem("gemini_user_voice") || "Puck");
-                document.getElementById("geminiVoiceSelect").value = voice;
-            }
-        } else {
-            if (divider) divider.style.display = "none";
-            if (header) header.style.display = "none";
-            if (drawer) drawer.style.display = "none";
-        }
-    }
-
-    window.switchToLiveMode = function() {
         if (window.AndroidInterface) {
-            window.AndroidInterface.logDiagnostic("Bridge event: switchToLiveMode signal captured on WebView.", "LIFECYCLE");
-        }
-        
-        const isLiveCompatible = globalSelectedModel && (globalSelectedModel.includes("live") || globalSelectedModel.includes("native-audio") || globalSelectedModel.includes("exp"));
-        if (activeProvider !== "Gemini" || !isLiveCompatible) {
-            activeProvider = "Gemini";
-            if (window.AndroidInterface && window.AndroidInterface.setActiveProvider) {
-                window.AndroidInterface.setActiveProvider("Gemini");
-            }
-            const defaultLiveModel = "gemini-3.1-flash-live-preview";
-            selectModel(defaultLiveModel, "Gemini 3.1 Flash Live Preview", { id: defaultLiveModel, categories: ["live", "text_chat", "audio"] });
-            if (window.AndroidInterface && window.AndroidInterface.showToast) {
-                window.AndroidInterface.showToast("Switched active provider model to Gemini Live Preview");
-            }
+            window.AndroidInterface.logDiagnostic("Attempting WebSockets Live API channel connection. Model: " + modelId, "NETWORK");
         }
 
-        const apiKey = window.AndroidInterface ? window.AndroidInterface.getGeminiApiKey() : (localStorage.getItem("gemini_user_api_key") || "");
-        if (!apiKey) {
-            alert("Please configure a valid Gemini Access API key first in Settings.");
+        const url = `wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent?key=${apiKey}`;
+
+        try {
             if (window.AndroidInterface) {
-                window.AndroidInterface.logDiagnostic("switchToLiveMode failed: Missing API Key.", "ERROR");
+                window.AndroidInterface.logDiagnostic("Creating WebSocket instance with key length: " + (apiKey ? apiKey.length : 0), "NETWORK");
+            }
+            liveWs = new WebSocket(url);
+        } catch (err) {
+            console.error("Live WebSocket creation exception: ", err);
+            window.isConnectingLiveSocket = false; // Reset the transitioning flag on initial failure [1]
+            if (window.AndroidInterface) {
+                window.AndroidInterface.logDiagnostic("WebSockets construction threw exception: " + err.message, "ERROR");
+                window.AndroidInterface.logHtmlGlitch("index.html - WebSockets", "Creation Exception: " + err.message);
             }
             return;
         }
 
-        const voiceElement = document.getElementById("geminiVoiceSelect");
-        const voiceName = voiceElement ? voiceElement.value : "Puck";
-
-        const groundingElement = document.getElementById("geminiGroundingSelect");
-        const useSearch = groundingElement ? (groundingElement.value === "search") : false;
-
-        const modelId = globalSelectedModel || "gemini-3.1-flash-live-preview";
-
-        connectWebSocketLive(apiKey, modelId, voiceName, useSearch);
-    };
-
-    function base64ToArrayBuffer(base64) {
-        const binaryString = window.atob(base64);
-        const len = binaryString.length;
-        const bytes = new Uint8Array(len);
-        for (let i = 0; i < len; i++) {
-            bytes[i] = binaryString.charCodeAt(i);
-        }
-        return bytes.buffer;
-    }
-
-    function pcmToWav(pcmBuffer, sampleRate, channels, bitsPerSample) {
-        const pcmLength = pcmBuffer.byteLength;
-        const header = new ArrayBuffer(44);
-        const view = new DataView(header);
-
-        function writeString(view, offset, string) {
-            for (let i = 0; i < string.length; i++) {
-                view.setUint8(offset + i, string.charCodeAt(i));
+        liveWs.onopen = () => {
+            if (window.AndroidInterface) {
+                window.AndroidInterface.logDiagnostic("WebSocket open event successfully fired. ReadyState: " + liveWs.readyState, "NETWORK");
             }
-        }
+            const setupMessage = {
+                setup: {
+                    model: "models/" + modelId,
+                    generationConfig: {
+                        responseModalities: ["AUDIO"],
+                        speechConfig: {
+                            voiceConfig: {
+                                prebuiltVoiceConfig: {
+                                    voiceName: voiceName
+                                }
+                            }
+                        }
+                    },
+                    tools: useSearch ? [{ googleSearch: {} }] : undefined
+                }
+            };
+            liveWs.send(JSON.stringify(setupMessage));
+            if (window.AndroidInterface) {
+                window.AndroidInterface.logDiagnostic("Live session setup configuration frame dispatched to host.", "NETWORK");
+            }
+        };
 
-        writeString(view, 0, "RIFF");
-        view.setUint32(4, 36 + pcmLength, true);
-        writeString(view, 8, "WAVE");
-        writeString(view, 12, "fmt ");
-        view.setUint32(16, 16, true);
-        view.setUint16(20, 1, true);
-        view.setUint16(22, channels, true);
-        view.setUint32(24, sampleRate, true);
-        view.setUint32(28, (sampleRate * channels * bitsPerSample) / 8, true);
-        view.setUint16(32, (channels * bitsPerSample) / 8, true);
-        view.setUint16(34, bitsPerSample, true);
-        writeString(view, 36, "data");
-        view.setUint32(40, pcmLength, true);
+        let currentLiveBotSpan = null;
 
-        const wavBytes = new Uint8Array(44 + pcmLength);
-        wavBytes.set(new Uint8Array(header), 0);
-        wavBytes.set(new Uint8Array(pcmBuffer), 44);
-
-        return wavBytes.buffer;
-    }
-
-    function arrayBufferToBase64(buffer) {
-        let binary = "";
-        const bytes = new Uint8Array(buffer);
-        const len = bytes.byteLength;
-        for (let i = 0; i < len; i++) {
-            binary += String.fromCharCode(bytes[i]);
-        }
-        return window.btoa(binary);
-    }
-
-    /* --- WEBSOCKET LIVE AUDIO ROUTING PIPELINES: TUNNELED OVER OKHTTP --- */
-    function connectWebSocketLive(apiKey, modelId, voiceName, useSearch) {
-        window.isConnectingLiveSocket = true;
-        disconnectWebSocketLive();
-        
-        if (window.AndroidInterface) {
-            window.AndroidInterface.logDiagnostic("Establishing Native WebSocket connection. Model: " + modelId, "NETWORK");
-        }
-
-        window.onNativeWebSocketMessage = function(text) {
+        liveWs.onmessage = async (event) => {
             try {
-                const payload = JSON.parse(text);
-                
+                let payload;
+                if (window.AndroidInterface) {
+                    window.AndroidInterface.logDiagnostic("WebSocket message block received. Data type: " + (event.data instanceof Blob ? "Blob" : typeof event.data), "NETWORK");
+                }
+                if (event.data instanceof Blob) {
+                    const textData = await event.data.text();
+                    payload = JSON.parse(textData);
+                } else {
+                    payload = JSON.parse(event.data);
+                }
+
                 if (payload.setupComplete) {
+                    // Reset transitional setup flag once handshake is fully confirmed [1]
                     window.isConnectingLiveSocket = false;
+
                     if (window.AndroidInterface) {
-                        window.AndroidInterface.logDiagnostic("Native WebSocket Setup handshaked and active.", "NETWORK");
+                        window.AndroidInterface.logDiagnostic("Handshake handshake confirmed. Triggering capture initialization...", "NETWORK");
+                        // Notify Android to cleanly release native SpeechRecognizer locks
                         if (window.AndroidInterface.setLiveSocketActive) {
                             window.AndroidInterface.setLiveSocketActive(true);
                         }
                     }
                     initMicrophoneCaptureLive();
-                    
+
+                    // Dispatch any stored/pending query that initiated the connection
                     if (pendingLiveQuery) {
+                        if (window.AndroidInterface) {
+                            window.AndroidInterface.logDiagnostic("Sending deferred query following socket activation: " + pendingLiveQuery.text.substring(0, 15) + "...", "QUERY");
+                        }
                         sendLiveTextQuery(pendingLiveQuery.text, pendingLiveQuery.files);
                         pendingLiveQuery = null;
                     }
@@ -2975,10 +2830,10 @@
                 }
 
                 if (payload.error) {
-                    window.isConnectingLiveSocket = false;
-                    console.error("Live server returned native error: ", payload.error);
+                    window.isConnectingLiveSocket = false; // Reset the transitioning flag [1]
+                    console.error("Live server error returned:", payload.error);
                     if (window.AndroidInterface) {
-                        window.AndroidInterface.logDiagnostic("Live session native error returned: " + JSON.stringify(payload.error), "ERROR");
+                        window.AndroidInterface.logDiagnostic("Live session host returned structural error: " + JSON.stringify(payload.error), "ERROR");
                         window.AndroidInterface.reportGlitchedLogic("GEMINI_LIVE_SERVER_ERROR", JSON.stringify(payload.error));
                     }
                     disconnectWebSocketLive();
@@ -2987,7 +2842,8 @@
 
                 if (payload.serverContent) {
                     const content = payload.serverContent;
-                    
+
+                    // Unified Live Barge-in Interruption Hook
                     if (content.interrupted) {
                         if (window.AndroidInterface) {
                             window.AndroidInterface.logDiagnostic("⚡ Live Barge-in Interruption packet received. Purging audio buffers.", "BARGE_IN");
@@ -2998,7 +2854,7 @@
                         }
                         currentLiveBotSpan = null;
                     }
-                    
+
                     if (content.modelTurn && content.modelTurn.parts) {
                         const msgId = "live-msg-" + Date.now();
                         if (!currentLiveBotSpan) {
@@ -3010,7 +2866,7 @@
                             log.appendChild(div);
                             currentLiveBotSpan = document.getElementById(`live-span-${msgId}`);
                         }
-                        
+
                         for (const part of content.modelTurn.parts) {
                             if (part.text) {
                                 currentLiveBotSpan.innerText += part.text;
@@ -3023,93 +2879,151 @@
                         }
                         window.scrollTo(0, document.body.scrollHeight);
                     }
-                    
+
                     if (content.turnComplete) {
                         if (window.AndroidInterface) {
-                            window.AndroidInterface.logDiagnostic("Live agent native server turn complete.", "NETWORK");
+                            window.AndroidInterface.logDiagnostic("Live agent server turn execution completed.", "NETWORK");
                         }
                         currentLiveBotSpan = null;
                     }
-                    
+
                     if (content.inputTranscription && content.inputTranscription.text) {
                         appendChat("User", content.inputTranscription.text, false, []);
+                        // Forward user transcriptions dynamically to native VoiceAgentActivity
                         if (window.AndroidInterface && window.AndroidInterface.broadcastUserTranscript) {
                             window.AndroidInterface.broadcastUserTranscript(content.inputTranscription.text);
                         }
                     }
                 }
             } catch (e) {
-                window.isConnectingLiveSocket = false;
-                console.error("Error processing native websocket string frame: ", e);
-            }
-        };
-
-        window.onNativeWebSocketClose = function(code, reason) {
-            window.isConnectingLiveSocket = false;
-            if (window.AndroidInterface) {
-                window.AndroidInterface.logDiagnostic(`Native WebSocket connection closed. Code: ${code} | Reason: ${reason}`, "NETWORK");
-                if (code === 1006) {
-                    window.AndroidInterface.logDiagnostic("Close Code 1006 indicates WebSocket failed standard browser Origin security handshakes. Native bypass should be confirmed.", "WARN");
+                window.isConnectingLiveSocket = false; // Reset transitioning flag on error [1]
+                console.error("Live packet processing exception: ", e);
+                if (window.AndroidInterface) {
+                    window.AndroidInterface.logDiagnostic("Error processing message frame: " + e.message, "ERROR");
+                    window.AndroidInterface.logHtmlGlitch("index.html - WebSockets onmessage", e.message);
                 }
             }
+        };
+
+        liveWs.onclose = (event) => {
+            window.isConnectingLiveSocket = false; // Reset the transitioning flag on closure [1]
+            if (window.AndroidInterface) {
+                window.AndroidInterface.logDiagnostic("WebSocket channel closed. Status Code: " + event.code + " | Reason: " + (event.reason || "None") + " | Clean close: " + event.wasClean, "NETWORK");
+            }
             disconnectWebSocketLive();
         };
 
-        window.onNativeWebSocketError = function(error) {
-            window.isConnectingLiveSocket = false;
-            console.error("Native WebSocket pipeline connection error: ", error);
-            disconnectWebSocketLive();
+        liveWs.onerror = (err) => {
+            window.isConnectingLiveSocket = false; // Reset the transitioning flag on error [1]
+            console.error("Live WebSockets channel error: ", err);
+            if (window.AndroidInterface) {
+                window.AndroidInterface.logDiagnostic("WebSocket protocol network error observed. State: " + (liveWs ? liveWs.readyState : "null"), "ERROR");
+            }
         };
-
-        if (window.AndroidInterface && window.AndroidInterface.connectNativeWebSocket) {
-            window.AndroidInterface.connectNativeWebSocket(apiKey, modelId, voiceName, useSearch);
-        } else {
-            window.isConnectingLiveSocket = false;
-            console.error("AndroidInterface.connectNativeWebSocket bridge method is missing!");
-        }
     }
 
     async function initMicrophoneCaptureLive() {
+        if (window.AndroidInterface) {
+            window.AndroidInterface.logDiagnostic("WebRTC initMicrophoneCaptureLive starting. Checking secure origin context: " + window.isSecureContext, "WEBRTC");
+
+            // Enumerate media devices first to diagnose hardware availability
+            try {
+                const devices = await navigator.mediaDevices.enumerateDevices();
+                let audioInputs = devices.filter(d => d.kind === 'audioinput');
+                window.AndroidInterface.logDiagnostic("Total media devices found: " + devices.length + " | Audio inputs: " + audioInputs.length, "WEBRTC");
+                audioInputs.forEach((dev, idx) => {
+                    window.AndroidInterface.logDiagnostic(`Audio Input [${idx}]: ID=${dev.deviceId} | Label="${dev.label || 'Permission Protected'}" | GroupID=${dev.groupId}`, "WEBRTC");
+                });
+            } catch (enumErr) {
+                window.AndroidInterface.logDiagnostic("Failed to enumerate devices: " + enumErr.message, "WEBRTC");
+            }
+
+            // Check permissions API
+            if (navigator.permissions && navigator.permissions.query) {
+                try {
+                    const status = await navigator.permissions.query({ name: 'microphone' });
+                    window.AndroidInterface.logDiagnostic("Permissions API 'microphone' state: " + status.state, "WEBRTC");
+                } catch (permErr) {
+                    window.AndroidInterface.logDiagnostic("Failed to query permissions API: " + permErr.message, "WEBRTC");
+                }
+            } else {
+                window.AndroidInterface.logDiagnostic("navigator.permissions.query is not supported on this browser context.", "WEBRTC");
+            }
+        }
+
         try {
+            if (window.AndroidInterface) {
+                window.AndroidInterface.logDiagnostic("Invoking navigator.mediaDevices.getUserMedia({ audio: true })...", "WEBRTC");
+            }
             const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
             liveMicStream = stream;
 
+            if (window.AndroidInterface) {
+                const tracks = stream.getAudioTracks();
+                window.AndroidInterface.logDiagnostic("Acquired stream tracks count: " + tracks.length, "WEBRTC");
+                tracks.forEach((track, idx) => {
+                    window.AndroidInterface.logDiagnostic(`Track [${idx}]: Label="${track.label}" | Id=${track.id} | Kind=${track.kind} | Enabled=${track.enabled} | ReadyState=${track.readyState}`, "WEBRTC");
+                });
+            }
+
             liveAudioContext = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
+            if (window.AndroidInterface) {
+                window.AndroidInterface.logDiagnostic("liveAudioContext initialized. state: " + liveAudioContext.state + " | sampleRate: " + liveAudioContext.sampleRate, "WEBAUDIO");
+            }
+
+            liveAudioContext.onstatechange = () => {
+                if (window.AndroidInterface) {
+                    window.AndroidInterface.logDiagnostic("liveAudioContext state changed to: " + liveAudioContext.state, "WEBAUDIO");
+                }
+            };
+
             const source = liveAudioContext.createMediaStreamSource(stream);
             liveAudioProcessor = liveAudioContext.createScriptProcessor(2048, 1, 1);
-            
+
             liveAudioProcessor.onaudioprocess = (e) => {
+                if (!liveWs || liveWs.readyState !== WebSocket.OPEN) return;
+
                 const inputFloat32 = e.inputBuffer.getChannelData(0);
                 const pcmBuffer = new ArrayBuffer(inputFloat32.length * 2);
                 const pcmView = new DataView(pcmBuffer);
-                
+
                 for (let i = 0; i < inputFloat32.length; i++) {
                     let sample = Math.max(-1, Math.min(1, inputFloat32[i]));
                     let int16Sample = sample < 0 ? sample * 0x8000 : sample * 0x7FFF;
                     pcmView.setInt16(i * 2, int16Sample, true);
                 }
-                
+
                 const base64AudioChunk = arrayBufferToBase64(pcmBuffer);
-                
-                if (window.AndroidInterface && window.AndroidInterface.sendAudioFrame) {
-                    window.AndroidInterface.sendAudioFrame(base64AudioChunk);
-                }
+
+                liveWs.send(JSON.stringify({
+                    realtimeInput: {
+                        audio: {
+                            mimeType: "audio/pcm;rate=16000",
+                            data: base64AudioChunk
+                        }
+                    }
+                }));
             };
-            
+
             source.connect(liveAudioProcessor);
             liveAudioProcessor.connect(liveAudioContext.destination);
             if (window.AndroidInterface) {
-                window.AndroidInterface.logDiagnostic("WebRTC microphone native recording tunnel active.", "HARDWARE");
+                window.AndroidInterface.logDiagnostic("WebRTC microphone capture active.", "HARDWARE");
             }
         } catch (err) {
-            console.error("Native recording bridge capture failed: ", err);
+            console.error("Live microphone acquisition failed: ", err);
             if (window.AndroidInterface) {
-                window.AndroidInterface.logDiagnostic("WebRTC microphone bridge capture failed: " + err.message, "WEBRTC");
+                let logErr = "WebRTC microphone acquisition failed: " + err.name + " (" + err.message + ")";
+                if (err.stack) logErr += " | Stack: " + err.stack;
+                if (err.constraint) logErr += " | Constraint: " + err.constraint;
+                window.AndroidInterface.logDiagnostic(logErr + ". Bypassing microphone stream.", "WEBRTC");
+                window.AndroidInterface.logHtmlGlitch("index.html - WebRTC", logErr);
             }
         }
     }
 
     function sendLiveTextQuery(promptText, files) {
+        if (!liveWs || liveWs.readyState !== WebSocket.OPEN) return;
         const turnParts = [];
         if (promptText) {
             turnParts.push({ text: promptText });
@@ -3138,9 +3052,10 @@
                 turnComplete: true
             }
         };
-        
-        if (window.AndroidInterface && window.AndroidInterface.sendTextQuery) {
-            window.AndroidInterface.sendTextQuery(JSON.stringify(clientContentMsg));
+        liveWs.send(JSON.stringify(clientContentMsg));
+        if (window.AndroidInterface) {
+            window.AndroidInterface.nativeLog("Dispatched live text query frame over WebSocket.", "native");
+            window.AndroidInterface.logDiagnostic("Transmitting live text query frame: \"" + promptText.substring(0, Math.min(promptText.length, 30)) + "...\"", "QUERY");
         }
     }
 
@@ -3157,33 +3072,33 @@
                     }
                 };
             }
-            
+
             const rawBuffer = base64ToArrayBuffer(base64Data);
             const int16Samples = new Int16Array(rawBuffer);
             const float32Samples = new Float32Array(int16Samples.length);
-            
+
             for (let i = 0; i < int16Samples.length; i++) {
                 float32Samples[i] = int16Samples[i] / 32768.0;
             }
-            
+
             const audioBuffer = livePlayCtx.createBuffer(1, float32Samples.length, 24000);
             audioBuffer.copyToChannel(float32Samples, 0);
-            
+
             const sourceNode = livePlayCtx.createBufferSource();
             sourceNode.buffer = audioBuffer;
             sourceNode.connect(livePlayCtx.destination);
-            
+
             const currentTime = livePlayCtx.currentTime;
             if (nextPlayTime < currentTime) {
                 nextPlayTime = currentTime + 0.05;
             }
-            
+
             sourceNode.start(nextPlayTime);
             activeSources.push({
                 source: sourceNode,
                 endTime: nextPlayTime + audioBuffer.duration
             });
-            
+
             nextPlayTime += audioBuffer.duration;
             activeSources = activeSources.filter(item => item.endTime > currentTime);
         } catch (err) {
@@ -3198,20 +3113,28 @@
         if (window.AndroidInterface) {
             window.AndroidInterface.logDiagnostic("disconnectWebSocketLive sequence initiated.", "NETWORK");
         }
+        // Gated call to prevent premature STT activations [1]
         if (!window.isConnectingLiveSocket) {
             if (window.AndroidInterface && window.AndroidInterface.setLiveSocketActive) {
                 window.AndroidInterface.setLiveSocketActive(false);
             }
         }
-        if (window.AndroidInterface && window.AndroidInterface.disconnectNativeWebSocket) {
-            window.AndroidInterface.disconnectNativeWebSocket();
-        }
         if (liveMicStream) {
             try {
+                if (window.AndroidInterface) {
+                    window.AndroidInterface.logDiagnostic("Releasing liveMicStream audio tracks.", "WEBRTC");
+                }
                 liveMicStream.getTracks().forEach(track => {
                     track.stop();
+                    if (window.AndroidInterface) {
+                        window.AndroidInterface.logDiagnostic("Stopped stream track: " + track.label, "WEBRTC");
+                    }
                 });
-            } catch(e) {}
+            } catch(e) {
+                if (window.AndroidInterface) {
+                    window.AndroidInterface.logDiagnostic("Error releasing audio tracks: " + e.message, "WEBRTC");
+                }
+            }
             liveMicStream = null;
         }
         if (liveAudioProcessor) {
@@ -3221,17 +3144,46 @@
             liveAudioProcessor = null;
         }
         if (liveAudioContext) {
-            try {
-                liveAudioContext.close();
-            } catch(e) {}
+            if (window.AndroidInterface) {
+                window.AndroidInterface.logDiagnostic("Closing liveAudioContext. Pre-close state: " + liveAudioContext.state, "WEBAUDIO");
+            }
+            liveAudioContext.close().then(() => {
+                if (window.AndroidInterface) {
+                    window.AndroidInterface.logDiagnostic("liveAudioContext cleanly closed.", "WEBAUDIO");
+                }
+            }).catch((e) => {
+                if (window.AndroidInterface) {
+                    window.AndroidInterface.logDiagnostic("Error closing liveAudioContext: " + e.message, "WEBAUDIO");
+                }
+            });
             liveAudioContext = null;
         }
         clearPlaybackQueueLive();
         if (livePlayCtx) {
-            try {
-                livePlayCtx.close();
-            } catch(e) {}
+            if (window.AndroidInterface) {
+                window.AndroidInterface.logDiagnostic("Closing livePlayCtx. Pre-close state: " + livePlayCtx.state, "WEBAUDIO");
+            }
+            livePlayCtx.close().then(() => {
+                if (window.AndroidInterface) {
+                    window.AndroidInterface.logDiagnostic("livePlayCtx cleanly closed.", "WEBAUDIO");
+                }
+            }).catch((e) => {
+                if (window.AndroidInterface) {
+                    window.AndroidInterface.logDiagnostic("Error closing livePlayCtx: " + e.message, "WEBAUDIO");
+                }
+            });
             livePlayCtx = null;
+        }
+        if (liveWs) {
+            if (liveWs.readyState === WebSocket.OPEN || liveWs.readyState === WebSocket.CONNECTING) {
+                try {
+                    if (window.AndroidInterface) {
+                        window.AndroidInterface.logDiagnostic("Closing liveWs connection.", "NETWORK");
+                    }
+                    liveWs.close();
+                } catch(e) {}
+            }
+            liveWs = null;
         }
     }
 
