@@ -247,6 +247,22 @@ public class WebAppInterface {
         context.sendBroadcast(intent);
     }
 
+    /**
+     * Primary Native TTS Bridge Method.
+     * Receives raw text strings and forwards them to MainActivity's system TextToSpeech engine.
+     */
+    @JavascriptInterface
+    public void speak(String text) {
+        nativeLog("speak requested via JS bridge: " + (text != null ? text.substring(0, Math.min(text.length(), 25)) + "..." : "null"), "info");
+        DiagnosticLogger.log("[BRIDGE] speak invoked.");
+        if (context instanceof MainActivity) {
+            ((MainActivity) context).speak(text);
+        } else {
+            nativeLog("speak execution aborted: Context is not an instance of MainActivity.", "error");
+            DiagnosticLogger.log("[BRIDGE] speak failure: Context is not MainActivity.");
+        }
+    }
+
     // 4. FULL-SCREEN VOICE AGENT (Active HTML WebSocket Mode Switcher)
     // Signals the WebView's JavaScript context to immediately connect the Gemini Live websocket.
     @JavascriptInterface
@@ -474,7 +490,7 @@ public class WebAppInterface {
 
     /**
      * NEW: Settings save interface.
-     * Persists the public extension key and active relay URL received from browser.html
+     * Preserves the public extension key and active relay URL received from browser.html
      * directly into native SharedPreferences.
      */
     @JavascriptInterface
