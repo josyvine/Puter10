@@ -977,7 +977,9 @@
     function triggerMic() {
         if(window.AndroidInterface) {
             isVoiceResponseActive = true;
-            window.AndroidInterface.setVoiceMode(true);
+            if (window.AndroidInterface.setVoiceMode) {
+                window.AndroidInterface.setVoiceMode(true);
+            }
             window.AndroidInterface.startListening();
         }
     }
@@ -985,7 +987,9 @@
     function triggerVoiceAgent() {
         if(window.AndroidInterface) {
             isVoiceResponseActive = true;
-            window.AndroidInterface.setVoiceMode(true);
+            if (window.AndroidInterface.setVoiceMode) {
+                window.AndroidInterface.setVoiceMode(true);
+            }
             window.AndroidInterface.startVoiceAgent();
         }
     }
@@ -1047,20 +1051,8 @@
 
       // Update global state immediately based on trigger source
       isVoiceResponseActive = fromVoice;
-      if(window.AndroidInterface) {
+      if(window.AndroidInterface && window.AndroidInterface.setVoiceMode) {
           window.AndroidInterface.setVoiceMode(fromVoice);
-      }
-
-      if (typeof puter === 'undefined' || !puter.auth || !puter.auth.isSignedIn()) {
-          console.warn("Auth Check initial fail. Waiting for cookie/session settlement...");
-          await new Promise(r => setTimeout(r, 600));
-      }
-
-      if (typeof puter === 'undefined' || !puter.auth || !puter.auth.isSignedIn()) {
-        console.error("Auth Check Final Failed. Real session not detected.");
-        alert("Please sign in to start chatting with Puter.");
-        handleAuthAction(true); 
-        return;
       }
 
       const input = document.getElementById('puterChatInput');
@@ -1102,6 +1094,18 @@
       if (activeProvider === "Gemini") {
           executeNativeGeminiSend(text, messageFiles);
           return;
+      }
+
+      if (typeof puter === 'undefined' || !puter.auth || !puter.auth.isSignedIn()) {
+          console.warn("Auth Check initial fail. Waiting for cookie/session settlement...");
+          await new Promise(r => setTimeout(r, 600));
+      }
+
+      if (typeof puter === 'undefined' || !puter.auth || !puter.auth.isSignedIn()) {
+        console.error("Auth Check Final Failed. Real session not detected.");
+        alert("Please sign in to start chatting with Puter.");
+        handleAuthAction(true); 
+        return;
       }
 
       // --- ENHANCEMENT: IMAGE MODEL LOGIC ---
@@ -2087,11 +2091,7 @@
         }
     }
 
-    /**
-     * Silent execution engine driving prompt compiles, boundary formatting,
-     * and in-memory RAG completion.
-     * Requirement: Instruction Two, Five and Seven
-     */
+    // Setup grounding XML block compiler
     async function executeAutoModeRAG(queryText, rawScrapedJson, loaderId) {
         if (window.AndroidInterface) {
             window.AndroidInterface.nativeLog("Starting AutoMode RAG context extraction...", "native");
@@ -2155,6 +2155,7 @@
             }];
 
             const isAudioModel = modelId.includes("tts") || (globalModelObject && globalModelObject.categories && globalModelObject.categories.includes("audio"));
+            const isStreaming = window.AndroidInterface ? window.AndroidInterface.getGeminiStreaming() : true;
             const supportsStreaming = !isAudioModel && !modelId.includes("live-preview") && isStreaming;
             const isDedicatedTts = modelId.includes("tts");
 
@@ -2921,148 +2922,6 @@
         textContainer.appendChild(ttsBtn);
     }
 
-    // Setup grounding XML block compiler
-    async function executeAutoModeRAG(queryText, rawScrapedJson, loaderId) {
-        if (window.AndroidInterface) {
-            window.AndroidInterface.nativeLog("Starting AutoMode RAG context extraction...", "native");
-        }
-        let liveContextString = "";
-        try {
-            const items = JSON.parse(rawScrapedJson);
-            if (Array.isArray(items)) {
-                const top2 = items.slice(0, 2);
-                top2.forEach(item => {
-                    const isUniversal = (item.type === "universal_web");
-                    const url = isUniversal ? (item.metadata?.url || "N/A") : `https://www.amazon.in/dp/${item.specifications?.asin || 'N/A'}`;
-                    const title = isUniversal ? (item.metadata?.title || "Universal Article") : `${item.specifications?.brand || ''} ${item.specifications?.model || ''}`;
-                    const contentText = isUniversal ? (item.content || "") : JSON.stringify(item.specifications);
-
-                    liveContextString += `[START OF LIVE WEB CONTEXT]\n`;
-                    liveContextString += `Source URL: ${url}\n`;
-                    liveContextString += `Page Title: ${title}\n`;
-                    liveContextString += `Scraped Content: ${contentText}\n`;
-                    liveContextString += `[END OF LIVE WEB CONTEXT]\n\n`;
-                });
-            }
-        } catch (e) {
-            liveContextString = `[START OF LIVE WEB CONTEXT]\nScraped Content: ${rawScrapedJson}\n[END OF LIVE WEB CONTEXT]\n`;
-        }
-
-        let systemPrompt = "You are an up-to-date, conversational AI assistant equipped with real-time web-crawling capabilities.\n";
-        systemPrompt += "You have been provided with fresh, crawled web documents matching the user's current query. You must prioritize this provided web data to construct your response.\n\n";
-
-        let groundingPrompt = systemPrompt + liveContextString;
-
-        groundingPrompt += "=== BEHAVIORAL AND FORMATTING CONSTRAINTS ===\n";
-        groundingPrompt += "- The \"No Technical Jargon\" Rule: You must NEVER mention technical or developmental terms under any circumstances, including but not limited to: \"raw JSON\", \"scraped databases\", \"API payloads\", \"web crawlers\", \"HTML tags\", \"Nostr events\", or \"relays\".\n";
-        groundingPrompt += "- The \"Natural Voice\" Rule: You must speak naturally, directly, and conversationally, as if you naturally possess this live, up-to-date knowledge.\n";
-        groundingPrompt += "- The \"Complete Answer Requirement\": You must construct a complete, detailed, and direct answer using the provided crawled web context. You must never output refusal phrases such as 'I could not find the answer', 'the context does not say', 'the data is missing', or 'I don't know'. Use the provided specifications and text to answer the query fully and directly.\n";
-
-        const targetLanguage = localStorage.getItem("puter_target_language") || "";
-        const nativeLanguage = getNativeLanguageName(targetLanguage);
-        if (targetLanguage) {
-            groundingPrompt += `- The Language Constraint:\n  IMPORTANT:\n  ALWAYS respond ONLY in ${nativeLanguage || targetLanguage}.\n  NEVER use English.\n  Even if user speaks English, translate internally and answer only in ${nativeLanguage || targetLanguage}.\n  Do not transliterate. Write strictly in the native script characters of the language.\n`;
-        }
-        groundingPrompt += "\n";
-
-        // --- PATHWAY ROUTING BRANCH: PUTER VS NATIVE GEMINI IN AUTO MODE ---
-        if (activeProvider === "Gemini") {
-            const modelId = globalSelectedModel;
-            const msgId = "gemini-" + Date.now() + "_" + Math.floor(Math.random() * 1000000);
-            
-            const contents = [{
-                role: "user",
-                parts: [{ text: `USER QUESTION: ${queryText}` }]
-            }];
-
-            const isAudioModel = modelId.includes("tts") || (globalModelObject && globalModelObject.categories && globalModelObject.categories.includes("audio"));
-            const isDedicatedTts = modelId.includes("tts");
-            const supportsStreaming = !isAudioModel && !modelId.includes("live-preview") && isStreaming;
-
-            const payload = { contents: contents };
-
-            if (!isDedicatedTts) {
-                payload.systemInstruction = { parts: [{ text: groundingPrompt }] };
-            } else {
-                contents[0].parts.unshift({ text: groundingPrompt });
-            }
-
-            const payloadJson = JSON.stringify(payload);
-
-            const loader = document.getElementById('ecgLoader');
-            if (loader) loader.style.display = 'none';
-
-            setupGeminiCallbacks(queryText, msgId, supportsStreaming);
-
-            try {
-                if (window.AndroidInterface && window.AndroidInterface.executeGeminiCall) {
-                    window.AndroidInterface.executeGeminiCall(modelId, payloadJson, supportsStreaming, msgId);
-                } else {
-                    throw new Error("Android Interface native bridge not available.");
-                }
-            } catch (e) {
-                const targetSpan = document.getElementById(`stream-content-${msgId}`);
-                if (targetSpan) targetSpan.innerHTML = "RAG Synthesize error: " + e.message;
-            }
-            return;
-        }
-
-        let finalUserQueryText = `USER QUESTION: ${queryText}`;
-        if (targetLanguage) {
-            const scriptName = nativeLanguage || targetLanguage;
-            finalUserQueryText += `\n\n[System Rule: Respond strictly in ${scriptName} script]`;
-        }
-
-        const messagesArray = [
-            { role: "system", content: groundingPrompt },
-            { role: "user", content: finalUserQueryText }
-        ];
-
-        const activeModel = globalSelectedModel;
-        try {
-            updateLoaderCardText(loaderId, "AI is synthesizing web findings...");
-
-            if (window.AndroidInterface) {
-                window.AndroidInterface.nativeLog("Delivering grounding payload to Puter completions pipeline. Model: " + activeModel, "native");
-            }
-
-            const streamResp = await puter.ai.chat(messagesArray, {
-                model: activeModel,
-                stream: true
-            });
-
-            const loaderTextEl = document.getElementById(`loader-indicator-text-${loaderId}`);
-            if (loaderTextEl) loaderTextEl.remove();
-
-            const targetSpan = document.getElementById(`stream-content-${loaderId}`);
-            let fullBotText = "";
-            for await (const chunk of streamResp) {
-                if (chunk.usage) { updateUsageUI(chunk.usage); continue; }
-                const chunkText = chunk?.text || chunk?.message?.content || "";
-                if (chunkText) {
-                    fullBotText += chunkText;
-                    targetSpan.innerHTML = marked.parse(fullBotText);
-                    document.querySelectorAll(`#stream-content-${loaderId} pre code:not(.hljs)`).forEach((block) => { hljs.highlightElement(block); });
-                    window.scrollTo(0, document.body.scrollHeight);
-                }
-            }
-
-            chatHistory.push({sender: "Bot", text: fullBotText, id: `msg-${loaderId}`, files: []});
-            localStorage.setItem('puter_chat_history_' + currentSessionId, JSON.stringify(chatHistory));
-
-            if (isVoiceResponseActive && window.AndroidInterface) {
-                window.AndroidInterface.speak(fullBotText);
-            }
-        } catch (completedError) {
-            console.error("index.html: Grounding prompt execution failure.", completedError);
-            if (window.AndroidInterface && window.AndroidInterface.logHtmlGlitch) {
-                window.AndroidInterface.logHtmlGlitch("index.html", "RAG execution failure: " + completedError.message);
-            }
-            const targetSpan = document.getElementById(`stream-content-${loaderId}`);
-            if (targetSpan) targetSpan.innerHTML = "RAG Synthesize error: " + completedError.message;
-        }
-    }
-
     // --- HELPER FUNCTIONS ---
 
     function saveCustom() {
@@ -3193,6 +3052,26 @@
             if (drawer) drawer.style.display = "none";
         }
     }
+
+    /* --- ADOPTED CONSTANTS FOR WEB VOICE TRIGGER GATES --- */
+    window.switchToLiveMode = function() {
+        if (window.AndroidInterface) {
+            window.AndroidInterface.logDiagnostic("Bridge event: switchToLiveMode signal captured on WebView.", "LIFECYCLE");
+        }
+        const apiKey = window.AndroidInterface ? window.AndroidInterface.getGeminiApiKey() : localStorage.getItem("gemini_user_api_key");
+        const modelId = globalSelectedModel || "gemini-3.1-flash-live-preview";
+        const voiceName = window.AndroidInterface ? (window.AndroidInterface.getGeminiVoice ? window.AndroidInterface.getGeminiVoice() : localStorage.getItem("gemini_user_voice")) : "Puck";
+        const useSearch = window.AndroidInterface ? (window.AndroidInterface.getGeminiGrounding() === "search") : false;
+        
+        if (apiKey) {
+            connectWebSocketLive(apiKey, modelId, voiceName, useSearch);
+        } else {
+            console.warn("switchToLiveMode triggered but Gemini Access API Key is missing.");
+            if (window.AndroidInterface) {
+                window.AndroidInterface.logDiagnostic("switchToLiveMode failed: Missing Gemini Access API Key.", "ERROR");
+            }
+        }
+    };
 
     /* --- ADOPTED PCM-WAV & RAW ARRAY BUFFER PIPELINE UTILITIES --- */
     function base64ToArrayBuffer(base64) {
@@ -3747,5 +3626,4 @@
     };
   </script>
 </body>
-</html> 
-
+</html>
