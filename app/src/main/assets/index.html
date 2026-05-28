@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+ <!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
@@ -973,25 +973,61 @@
         return String(content);
     }
 
-    /* --- REFINED VOICE MODE TRIGGERS --- */
+    /* --- REQUIREMENT #1: FIXED VOICE LOGIC --- */
     function triggerMic() {
-        if(window.AndroidInterface) {
-            isVoiceResponseActive = true;
+        isVoiceResponseActive = true;
+        if (window.AndroidInterface && window.AndroidInterface.startListening) {
             if (window.AndroidInterface.setVoiceMode) {
                 window.AndroidInterface.setVoiceMode(true);
             }
             window.AndroidInterface.startListening();
+        } else {
+            // Tier 2: Web Speech Fallback
+            const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+            if (!SpeechRecognition) {
+                console.error("Web Speech Recognition is not supported in this browser context.");
+                alert("Speech recognition is not supported in this browser.");
+                return;
+            }
+            const recognition = new SpeechRecognition();
+            recognition.lang = "en-US";
+            recognition.interimResults = false;
+            recognition.continuous = false;
+
+            recognition.onstart = () => {
+                if (window.AndroidInterface && window.AndroidInterface.logDiagnostic) {
+                    window.AndroidInterface.logDiagnostic("Web Speech STT Fallback active", "SPEECH");
+                }
+            };
+
+            recognition.onresult = (e) => {
+                const transcript = e.results[0][0].transcript;
+                const input = document.getElementById('puterChatInput');
+                if (input) {
+                    input.value = transcript;
+                    handleInput();
+                    sendMessage(true);
+                }
+            };
+
+            recognition.onerror = (err) => {
+                console.error("Web Speech STT Error: ", err);
+                if (window.AndroidInterface && window.AndroidInterface.logDiagnostic) {
+                    window.AndroidInterface.logDiagnostic("Web Speech STT Error: " + err.error, "ERROR");
+                }
+            };
+
+            recognition.start();
         }
     }
 
     function triggerVoiceAgent() {
-        if(window.AndroidInterface) {
-            isVoiceResponseActive = true;
-            if (window.AndroidInterface.setVoiceMode) {
-                window.AndroidInterface.setVoiceMode(true);
-            }
-            window.AndroidInterface.startVoiceAgent();
+        isVoiceResponseActive = true;
+        if (window.AndroidInterface && window.AndroidInterface.setVoiceMode) {
+            window.AndroidInterface.setVoiceMode(true);
         }
+        // Direct call to pure-web live connection manager
+        window.switchToLiveMode();
     }
 
     /* --- FIX #2: PERSISTENT USAGE TELEMETRY UPDATER --- */
@@ -1305,8 +1341,8 @@
             chatHistory.push({sender: "Bot", text: fullBotText, id: msgId, files: []});
             localStorage.setItem('puter_chat_history_' + currentSessionId, JSON.stringify(chatHistory));
 
-            if(isVoiceResponseActive && window.AndroidInterface) {
-                window.AndroidInterface.speak(fullBotText);
+            if(isVoiceResponseActive) {
+                executeSpeechSynthesisFallback(fullBotText);
             }
         }
 
@@ -1451,7 +1487,7 @@
                 alert("Copied to clipboard");
             }
         } else if(action === 'read') {
-            if(window.AndroidInterface) window.AndroidInterface.speak(text);
+            executeSpeechSynthesisFallback(text);
         } else if(action === 'delete') {
             // Stop AI speech if deleted
             if(window.AndroidInterface) window.AndroidInterface.stopSpeaking();
@@ -1830,7 +1866,7 @@
 
                 // Mask keys for security
                 const displayedPub = pubKey ? (pubKey.substring(0, 10) + "..." + pubKey.substring(pubKey.length - 6)) : "Not Generated";
-                const displayedPriv = privKey ? (privKey.substring(0, 6) + "..." + privKey.substring(privKey.length - 6)) : "Not Generated";
+                const displayedPriv = privKey ? (privKey.substring(0, 6) + "..." + privKey.substring(pubKey.length - 6)) : "Not Generated";
 
                 document.getElementById('nostrNpubDisplay').textContent = displayedPub;
                 document.getElementById('nostrNsecDisplay').textContent = displayedPriv;
@@ -2081,8 +2117,8 @@
             chatHistory.push({sender: "Bot", text: fullBotText, id: `msg-${loaderId}`, files: []});
             localStorage.setItem('puter_chat_history_' + currentSessionId, JSON.stringify(chatHistory));
 
-            if (isVoiceResponseActive && window.AndroidInterface) {
-                window.AndroidInterface.speak(fullBotText);
+            if (isVoiceResponseActive) {
+                executeSpeechSynthesisFallback(fullBotText);
             }
         } catch (e) {
             console.error("index.html: Fallback completing cycle failed.", e);
@@ -2234,8 +2270,8 @@
             chatHistory.push({sender: "Bot", text: fullBotText, id: `msg-${loaderId}`, files: []});
             localStorage.setItem('puter_chat_history_' + currentSessionId, JSON.stringify(chatHistory));
 
-            if (isVoiceResponseActive && window.AndroidInterface) {
-                window.AndroidInterface.speak(fullBotText);
+            if (isVoiceResponseActive) {
+                executeSpeechSynthesisFallback(fullBotText);
             }
         } catch (completedError) {
             console.error("index.html: Grounding prompt execution failure.", completedError);
@@ -2872,9 +2908,7 @@
         window.scrollTo(0, document.body.scrollHeight);
 
         if (isVoiceResponseActive && !document.getElementById(msgId)?.querySelector(".message-content")?.dataset?.audioUrl) {
-            if (window.AndroidInterface) {
-                window.AndroidInterface.speak(finalBody);
-            }
+            executeSpeechSynthesisFallback(finalBody);
         }
     }
 
@@ -3058,19 +3092,41 @@
         if (window.AndroidInterface) {
             window.AndroidInterface.logDiagnostic("Bridge event: switchToLiveMode signal captured on WebView.", "LIFECYCLE");
         }
-        const apiKey = window.AndroidInterface ? window.AndroidInterface.getGeminiApiKey() : localStorage.getItem("gemini_user_api_key");
-        const modelId = globalSelectedModel || "gemini-3.1-flash-live-preview";
-        const voiceName = window.AndroidInterface ? (window.AndroidInterface.getGeminiVoice ? window.AndroidInterface.getGeminiVoice() : localStorage.getItem("gemini_user_voice")) : "Puck";
-        const useSearch = window.AndroidInterface ? (window.AndroidInterface.getGeminiGrounding() === "search") : false;
         
-        if (apiKey) {
-            connectWebSocketLive(apiKey, modelId, voiceName, useSearch);
-        } else {
-            console.warn("switchToLiveMode triggered but Gemini Access API Key is missing.");
-            if (window.AndroidInterface) {
-                window.AndroidInterface.logDiagnostic("switchToLiveMode failed: Missing Gemini Access API Key.", "ERROR");
+        // Model compatibility guard & Settings dropdown Sync
+        const isLiveCompatible = globalSelectedModel && (globalSelectedModel.includes("live") || globalSelectedModel.includes("native-audio") || globalSelectedModel.includes("exp"));
+        if (activeProvider !== "Gemini" || !isLiveCompatible) {
+            activeProvider = "Gemini";
+            if (window.AndroidInterface && window.AndroidInterface.setActiveProvider) {
+                window.AndroidInterface.setActiveProvider("Gemini");
+            }
+            // Dynamically default selection configuration parameters
+            const defaultLiveModel = "gemini-3.1-flash-live-preview";
+            selectModel(defaultLiveModel, "Gemini 3.1 Flash Live Preview", { id: defaultLiveModel, categories: ["live", "text_chat", "audio"] });
+            if (window.AndroidInterface && window.AndroidInterface.showToast) {
+                window.AndroidInterface.showToast("Switched active provider model to Gemini Live Preview");
             }
         }
+
+        const apiKey = window.AndroidInterface ? window.AndroidInterface.getGeminiApiKey() : (localStorage.getItem("gemini_user_api_key") || "");
+        if (!apiKey) {
+            alert("Please configure a valid Gemini Access API key first in Settings.");
+            if (window.AndroidInterface) {
+                window.AndroidInterface.logDiagnostic("switchToLiveMode failed: Missing API Key.", "ERROR");
+            }
+            return;
+        }
+
+        // Sync dropdown selectors directly on the fly
+        const voiceElement = document.getElementById("geminiVoiceSelect");
+        const voiceName = voiceElement ? voiceElement.value : "Puck";
+
+        const groundingElement = document.getElementById("geminiGroundingSelect");
+        const useSearch = groundingElement ? (groundingElement.value === "search") : false;
+
+        const modelId = globalSelectedModel || "gemini-3.1-flash-live-preview";
+
+        connectWebSocketLive(apiKey, modelId, voiceName, useSearch);
     };
 
     /* --- ADOPTED PCM-WAV & RAW ARRAY BUFFER PIPELINE UTILITIES --- */
@@ -3591,6 +3647,52 @@
         nextPlayTime = 0;
     }
 
+    /* --- NEW SPECIFICATION: TWO-TIER READ ALOUD falls --- */
+    function readAloud(elementId) {
+        const el = document.getElementById(elementId);
+        if (!el) {
+            console.error("readAloud: DOM Node with target ID not resolved: " + elementId);
+            return;
+        }
+        const text = el.innerText || el.textContent || "";
+        executeSpeechSynthesisFallback(text);
+    }
+
+    function executeSpeechSynthesisFallback(text) {
+        if (!text) return;
+
+        // Tier 1: Primary Native TTS via Android Bridge
+        if (window.AndroidInterface && window.AndroidInterface.speak) {
+            if (window.AndroidInterface.logDiagnostic) {
+                window.AndroidInterface.logDiagnostic("Executing Tier 1 Speech synthesis natively.", "SPEECH");
+            }
+            window.AndroidInterface.speak(text);
+        } else {
+            // Tier 2: Browser-Native Web Speech Synthesis API Fallback
+            console.log("WebAppInterface speak method is not available. Executing Tier 2 web speech fallback...");
+            if (window.AndroidInterface && window.AndroidInterface.logDiagnostic) {
+                window.AndroidInterface.logDiagnostic("Executing Tier 2 Speech synthesis browser fallback.", "SPEECH");
+            }
+            if (window.speechSynthesis) {
+                try {
+                    window.speechSynthesis.cancel();
+                    const utterance = new SpeechSynthesisUtterance(text);
+                    
+                    const targetLanguage = localStorage.getItem("puter_target_language") || "";
+                    if (targetLanguage) {
+                        utterance.lang = targetLanguage;
+                    }
+                    
+                    window.speechSynthesis.speak(utterance);
+                } catch (e) {
+                    console.error("Web Speech synthesis failed: ", e);
+                }
+            } else {
+                console.error("Speech Synthesis is not supported in this browser context.");
+            }
+        }
+    }
+
     // Execute immediately on load
     window.onload = () => {
         console.log("Page Lifecycle: ONLOAD on Secure Origin");
@@ -3627,3 +3729,4 @@
   </script>
 </body>
 </html>
+
