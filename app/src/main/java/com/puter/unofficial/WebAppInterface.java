@@ -51,6 +51,7 @@ import okio.ByteString;
  * UPDATED: Added native OkHttp WebSocket Tunneling to bypass browser-native CORS/Origin restrictions.
  * UPDATED: Implemented stopSpeaking() method to prevent JavaScript TypeError context crashes on delete actions.
  * UPDATED: Enhanced system hardware diagnostics and forensic log integration.
+ * THREADING FIX: Implemented thread-safe StringBuilder token queuing and 40ms flusher to end UI lag.
  */
 public class WebAppInterface {
 
@@ -62,6 +63,39 @@ public class WebAppInterface {
     // Native OkHttp WebSocket variables
     private WebSocket activeWebSocket;
     private final OkHttpClient okHttpClient = new OkHttpClient();
+
+    // High-speed, Main-Thread Buffer Throttling Variables
+    private final android.os.Handler mainHandler = new android.os.Handler(android.os.Looper.getMainLooper());
+    private final java.util.List<String> wsMessageBuffer = new java.util.ArrayList<>();
+    private boolean isFlushPending = false;
+
+    // Compiles and flushes all queued socket updates to the main thread in a single execution block
+    private final Runnable flushRunnable = new Runnable() {
+        @Override
+        public void run() {
+            java.util.List<String> tempMessages;
+            synchronized (wsMessageBuffer) {
+                tempMessages = new java.util.ArrayList<>(wsMessageBuffer);
+                wsMessageBuffer.clear();
+                isFlushPending = false;
+            }
+
+            if (!tempMessages.isEmpty() && webView != null) {
+                StringBuilder jsBuilder = new StringBuilder();
+                jsBuilder.append("(function() {");
+                jsBuilder.append("if (window.onNativeWebSocketMessage) {");
+                for (String msg : tempMessages) {
+                    jsBuilder.append("window.onNativeWebSocketMessage('")
+                             .append(escapeJsString(msg))
+                             .append("');");
+                }
+                jsBuilder.append("}");
+                jsBuilder.append("})();");
+
+                webView.evaluateJavascript(jsBuilder.toString(), null);
+            }
+        }
+    };
 
     // Global static tracking for Live WebSocket session visibility
     public static volatile boolean isLiveSocketActive = false;
@@ -216,23 +250,18 @@ public class WebAppInterface {
 
             @Override
             public void onMessage(WebSocket webSocket, String text) {
-                if (webView != null) {
-                    final String escapedText = escapeJsString(text);
-                    webView.post(() -> {
-                        webView.evaluateJavascript("if (window.onNativeWebSocketMessage) { window.onNativeWebSocketMessage('" + escapedText + "'); }", null);
-                    });
+                synchronized (wsMessageBuffer) {
+                    wsMessageBuffer.add(text);
+                    if (!isFlushPending) {
+                        isFlushPending = true;
+                        mainHandler.postDelayed(flushRunnable, 40); // 40ms visual latency throttle
+                    }
                 }
             }
 
             @Override
             public void onMessage(WebSocket webSocket, ByteString bytes) {
-                if (webView != null) {
-                    final String text = bytes.utf8();
-                    final String escapedText = escapeJsString(text);
-                    webView.post(() -> {
-                        webView.evaluateJavascript("if (window.onNativeWebSocketMessage) { window.onNativeWebSocketMessage('" + escapedText + "'); }", null);
-                    });
-                }
+                onMessage(webSocket, bytes.utf8());
             }
 
             @Override
@@ -301,6 +330,11 @@ public class WebAppInterface {
      */
     @JavascriptInterface
     public void disconnectNativeWebSocket() {
+        synchronized (wsMessageBuffer) {
+            mainHandler.removeCallbacks(flushRunnable);
+            wsMessageBuffer.clear();
+            isFlushPending = false;
+        }
         if (activeWebSocket != null) {
             nativeLog("Bridge: disconnectNativeWebSocket requested.", "native");
             DiagnosticLogger.log("[NATIVE WEBSOCKET] disconnectNativeWebSocket invoked.");
@@ -337,7 +371,7 @@ public class WebAppInterface {
     public void startListening() {
         nativeLog("startListening called. isLiveSocketActive: " + isLiveSocketActive, "native");
         DiagnosticLogger.log("[BRIDGE] startListening requested. isLiveSocketActive=" + isLiveSocketActive);
-        
+
         if (isLiveSocketActive) {
             DiagnosticLogger.log("[STT] Bypassed native SpeechRecognizer: WebView Live session is active.");
             return;
@@ -449,7 +483,7 @@ public class WebAppInterface {
             AudioManager audioManager = (AudioManager) context.getSystemService(Context.AUDIO_SERVICE);
             if (audioManager != null) {
                 obj.put("hardware_mic_muted", audioManager.isMicrophoneMute());
-                
+
                 boolean isMicCapturedByOther = false;
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
                     List<AudioRecordingConfiguration> configs = audioManager.getActiveRecordingConfigurations();
