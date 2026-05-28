@@ -9,12 +9,14 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
 import android.content.SharedPreferences;
+import android.content.pm.PackageManager; // Added for self diagnostics
 import android.graphics.Bitmap; // Added for image decoding
 import android.graphics.BitmapFactory; // Added for image decoding
 import android.net.Uri;
 import android.os.Build; // Added for Scoped Storage compatibility
 import android.os.Environment; // Added for public directory
 import android.provider.MediaStore; // Added for saving images
+import android.speech.SpeechRecognizer; // Added for STT diagnostics
 import android.webkit.JavascriptInterface;
 import android.webkit.WebView;
 import android.widget.Toast;
@@ -22,6 +24,8 @@ import android.util.Log;
 import android.webkit.CookieManager;
 import android.media.AudioManager;
 import android.media.AudioRecordingConfiguration;
+
+import androidx.core.content.ContextCompat; // Added for permission checks
 
 import java.io.OutputStream; // Added for writing image data
 import java.io.IOException; // Added for exception handling
@@ -261,6 +265,67 @@ public class WebAppInterface {
             nativeLog("speak execution aborted: Context is not an instance of MainActivity.", "error");
             DiagnosticLogger.log("[BRIDGE] speak failure: Context is not MainActivity.");
         }
+    }
+
+    /**
+     * Packages current OS permissions and native speech engine states into a JSON payload.
+     * Satisfies the native diagnostics checklist requirements for the startup diagnostics console.
+     */
+    @JavascriptInterface
+    public String getSystemHardwareDiagnostics() {
+        nativeLog("getSystemHardwareDiagnostics invoked over JavaScript bridge.", "info");
+        DiagnosticLogger.log("[BRIDGE] Querying native hardware and permission states.");
+        org.json.JSONObject obj = new org.json.JSONObject();
+        try {
+            // 1. Check OS Record Audio Permission
+            boolean hasMicPermission = ContextCompat.checkSelfPermission(context, android.Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED;
+            obj.put("native_record_audio_granted", hasMicPermission);
+
+            // 2. Check OS Post Notifications Permission (Android 13+ check)
+            boolean hasNotificationPermission = true;
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                hasNotificationPermission = ContextCompat.checkSelfPermission(context, android.Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED;
+            }
+            obj.put("native_post_notifications_granted", hasNotificationPermission);
+
+            // 3. Check if SpeechRecognizer is available natively
+            boolean isSTTAvailable = SpeechRecognizer.isRecognitionAvailable(context);
+            obj.put("native_stt_engine_available", isSTTAvailable);
+
+            // 4. Query AudioManager for mute status and active recorders
+            AudioManager audioManager = (AudioManager) context.getSystemService(Context.AUDIO_SERVICE);
+            if (audioManager != null) {
+                obj.put("hardware_mic_muted", audioManager.isMicrophoneMute());
+                
+                boolean isMicCapturedByOther = false;
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                    List<AudioRecordingConfiguration> configs = audioManager.getActiveRecordingConfigurations();
+                    obj.put("active_recording_configs_count", configs.size());
+                    if (configs.size() > 0) {
+                        isMicCapturedByOther = true;
+                    }
+                } else {
+                    obj.put("active_recording_configs_count", -1);
+                }
+                obj.put("hardware_mic_occupied", isMicCapturedByOther);
+            } else {
+                obj.put("hardware_mic_muted", false);
+                obj.put("hardware_mic_occupied", false);
+                obj.put("active_recording_configs_count", 0);
+            }
+
+            // 5. General Device Info
+            obj.put("device_sdk_int", Build.VERSION.SDK_INT);
+            obj.put("device_model", Build.MODEL);
+            obj.put("device_manufacturer", Build.MANUFACTURER);
+
+        } catch (Exception e) {
+            Log.e("WebAppInterface", "Error compiling native system diagnostics: ", e);
+            try {
+                obj.put("error", e.getMessage());
+            } catch (Exception ignored) {}
+        }
+        return obj.toString();
     }
 
     // 4. FULL-SCREEN VOICE AGENT (Active HTML WebSocket Mode Switcher)
