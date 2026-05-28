@@ -49,7 +49,7 @@ import java.util.Locale; // Added for native TTS Locale
  * CRITICAL LIFECYCLE FIXES: Implemented clean onPause microphone release and onResume STT context recreation.
  * TTS INTEGRATION: Implemented TextToSpeech.OnInitListener to handle native vocalization fallbacks.
  * ENHANCED DIAGNOSTICS: Added explicit millisecond-precise trace logging for permissions, TTS, and core transitions.
- * NATIVE BYPASS: Re-routed WebView URL loadings natively via file:///android_asset/ to satisfy WebSocket Origin handshakes.
+ * NATIVE BYPASS REVERTED: Reverted to https://appassets.androidplatform.net/assets/index.html to restore Puter Sign-In.
  */
 public class MainActivity extends AppCompatActivity implements TextToSpeech.OnInitListener {
 
@@ -236,8 +236,8 @@ public class MainActivity extends AppCompatActivity implements TextToSpeech.OnIn
         // Exposes 'window.AndroidInterface' to the HTML/JS logic
         webView.addJavascriptInterface(webAppInterface, AppConstants.JS_BRIDGE_NAME);
 
-        // Load the frontend via the local file asset schema to force standard browser Origin parameters (Origin: null)
-        webView.loadUrl("file:///android_asset/index.html");
+        // Reverted back to App Assets HTTPS origin to satisfy Puter Sign-In requirement
+        webView.loadUrl("https://appassets.androidplatform.net/assets/index.html");
 
         // Check and Request System Permissions
         checkAndRequestPermissions();
@@ -309,7 +309,7 @@ public class MainActivity extends AppCompatActivity implements TextToSpeech.OnIn
         if (webView == null) return;
 
         String activeUrl = webView.getUrl();
-        if (activeUrl == null || activeUrl.startsWith("about:blank") || activeUrl.startsWith("file:///android_asset/index.html")) {
+        if (activeUrl == null || activeUrl.startsWith("about:blank") || activeUrl.startsWith("https://appassets.androidplatform.net/assets/index.html")) {
             Toast.makeText(this, "Navigate to a webpage first before scraping.", Toast.LENGTH_SHORT).show();
             return;
         }
@@ -377,7 +377,7 @@ public class MainActivity extends AppCompatActivity implements TextToSpeech.OnIn
             if (url == null) return;
 
             // Hide native controls if loading ANY local web assets or the main index page
-            if (url.startsWith("file:///android_asset/index.html") || url.contains("browser.html")) {
+            if (url.startsWith("https://appassets.androidplatform.net/assets/index.html") || url.contains("browser.html")) {
                 browserToolbar.setVisibility(View.GONE);
                 fabScrape.setVisibility(View.GONE);
             } else {
@@ -398,7 +398,7 @@ public class MainActivity extends AppCompatActivity implements TextToSpeech.OnIn
      */
     private void loadIndexHtml() {
         if (webView != null) {
-            webView.loadUrl("file:///android_asset/index.html");
+            webView.loadUrl("https://appassets.androidplatform.net/assets/index.html");
         }
     }
 
@@ -571,7 +571,7 @@ public class MainActivity extends AppCompatActivity implements TextToSpeech.OnIn
                     return;
                 }
                 // If viewing other external webpages inside the top-level viewport
-                else if (!currentUrl.startsWith("file:///android_asset/")) {
+                else if (!currentUrl.startsWith("https://appassets.androidplatform.net/")) {
                     if (webView.canGoBack()) {
                         webView.goBack();
                         return;
@@ -579,7 +579,7 @@ public class MainActivity extends AppCompatActivity implements TextToSpeech.OnIn
                 } 
                 // If inside local sub-panels (like browser.html receiver)
                 else if (currentUrl.contains("browser.html")) {
-                    webView.loadUrl("file:///android_asset/index.html");
+                    webView.loadUrl("https://appassets.androidplatform.net/assets/index.html");
                     return;
                 }
             }
