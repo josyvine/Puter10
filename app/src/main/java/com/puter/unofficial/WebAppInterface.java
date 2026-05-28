@@ -35,23 +35,14 @@ import java.util.Objects;
 import java.util.Date;
 import java.util.List;
 
-// Added OkHttp and Okio imports for the Native WebSocket Tunneling
-import okhttp3.OkHttpClient;
-import okhttp3.Request;
-import okhttp3.Response;
-import okhttp3.WebSocket;
-import okhttp3.WebSocketListener;
-import okio.ByteString;
-
 /**
  * The core bridge class between the HTML JavaScript and Native Android code.
  * Fulfills all requirements for native TTS, barge-in, full-screen voice agent,
  * and authentication persistence.
  * 
- * UPDATED: Added native OkHttp WebSocket Tunneling to bypass browser-native CORS/Origin restrictions.
+ * UPDATED: Adapted direct browser WebRTC logic (removed native OkHttp WebSocket Tunneling to optimize real-time streaming latency).
  * UPDATED: Implemented stopSpeaking() method to prevent JavaScript TypeError context crashes on delete actions.
  * UPDATED: Enhanced system hardware diagnostics and forensic log integration.
- * THREADING FIX: Implemented thread-safe StringBuilder token queuing and 40ms flusher to end UI lag.
  */
 public class WebAppInterface {
 
@@ -59,43 +50,6 @@ public class WebAppInterface {
     private final WebView webView;
     private final SharedPreferences prefs;
     private GeminiService geminiService;
-
-    // Native OkHttp WebSocket variables
-    private WebSocket activeWebSocket;
-    private final OkHttpClient okHttpClient = new OkHttpClient();
-
-    // High-speed, Main-Thread Buffer Throttling Variables
-    private final android.os.Handler mainHandler = new android.os.Handler(android.os.Looper.getMainLooper());
-    private final java.util.List<String> wsMessageBuffer = new java.util.ArrayList<>();
-    private boolean isFlushPending = false;
-
-    // Compiles and flushes all queued socket updates to the main thread in a single execution block
-    private final Runnable flushRunnable = new Runnable() {
-        @Override
-        public void run() {
-            java.util.List<String> tempMessages;
-            synchronized (wsMessageBuffer) {
-                tempMessages = new java.util.ArrayList<>(wsMessageBuffer);
-                wsMessageBuffer.clear();
-                isFlushPending = false;
-            }
-
-            if (!tempMessages.isEmpty() && webView != null) {
-                StringBuilder jsBuilder = new StringBuilder();
-                jsBuilder.append("(function() {");
-                jsBuilder.append("if (window.onNativeWebSocketMessage) {");
-                for (String msg : tempMessages) {
-                    jsBuilder.append("window.onNativeWebSocketMessage('")
-                             .append(escapeJsString(msg))
-                             .append("');");
-                }
-                jsBuilder.append("}");
-                jsBuilder.append("})();");
-
-                webView.evaluateJavascript(jsBuilder.toString(), null);
-            }
-        }
-    };
 
     // Global static tracking for Live WebSocket session visibility
     public static volatile boolean isLiveSocketActive = false;
@@ -183,183 +137,6 @@ public class WebAppInterface {
             ActionReportLogger.logError("NATIVE_BRIDGE", message);
         } else {
             ActionReportLogger.logAction("NATIVE_BRIDGE", message);
-        }
-    }
-
-    // =========================================================================
-    // NATIVE OKHTTP WEBSOCKET TUNNELING METHODS
-    // =========================================================================
-
-    /**
-     * Establishes a native-level WebSocket connection to Google's gateway,
-     * completely bypasses browser origin restrictions.
-     */
-    @JavascriptInterface
-    public void connectNativeWebSocket(final String apiKey, final String modelId, final String voiceName, final boolean useSearch) {
-        disconnectNativeWebSocket(); // Clear any existing active connections
-        nativeLog("Bridge: Initiating Native OkHttp WebSocket Tunnel. Model: " + modelId, "native");
-        DiagnosticLogger.log("[NATIVE WEBSOCKET] connectNativeWebSocket requested for model: " + modelId);
-
-        String url = "wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent?key=" + apiKey;
-        Request request = new Request.Builder()
-                .url(url)
-                .build();
-
-        activeWebSocket = okHttpClient.newWebSocket(request, new WebSocketListener() {
-            @Override
-            public void onOpen(WebSocket webSocket, Response response) {
-                nativeLog("Native WebSocket: Open connection validated.", "success");
-                DiagnosticLogger.log("[NATIVE WEBSOCKET] onOpen - Connection established successfully.");
-
-                try {
-                    org.json.JSONObject setupMsg = new org.json.JSONObject();
-                    org.json.JSONObject setup = new org.json.JSONObject();
-                    setup.put("model", "models/" + modelId);
-
-                    org.json.JSONObject generationConfig = new org.json.JSONObject();
-                    generationConfig.put("responseModalities", new org.json.JSONArray().put("AUDIO"));
-
-                    org.json.JSONObject speechConfig = new org.json.JSONObject();
-                    org.json.JSONObject voiceConfig = new org.json.JSONObject();
-                    org.json.JSONObject prebuiltVoiceConfig = new org.json.JSONObject();
-                    prebuiltVoiceConfig.put("voiceName", voiceName);
-                    voiceConfig.put("prebuiltVoiceConfig", prebuiltVoiceConfig);
-                    speechConfig.put("voiceConfig", voiceConfig);
-                    generationConfig.put("speechConfig", speechConfig);
-
-                    setup.put("generationConfig", generationConfig);
-
-                    if (useSearch) {
-                        org.json.JSONArray tools = new org.json.JSONArray();
-                        org.json.JSONObject searchTool = new org.json.JSONObject();
-                        searchTool.put("googleSearch", new org.json.JSONObject());
-                        tools.put(searchTool);
-                        setup.put("tools", tools);
-                    }
-
-                    setupMsg.put("setup", setup);
-
-                    webSocket.send(setupMsg.toString());
-                    nativeLog("Native WebSocket: Setup handshake frame sent.", "info");
-                    DiagnosticLogger.log("[NATIVE WEBSOCKET] Sent setup configuration frame.");
-                } catch (Exception e) {
-                    Log.e("WebAppInterface", "Error constructing setup JSON", e);
-                    nativeLog("Native WebSocket: Failed to compose setup. Error: " + e.getMessage(), "error");
-                }
-            }
-
-            @Override
-            public void onMessage(WebSocket webSocket, String text) {
-                synchronized (wsMessageBuffer) {
-                    wsMessageBuffer.add(text);
-                    if (!isFlushPending) {
-                        isFlushPending = true;
-                        mainHandler.postDelayed(flushRunnable, 40); // 40ms visual latency throttle
-                    }
-                }
-            }
-
-            @Override
-            public void onMessage(WebSocket webSocket, ByteString bytes) {
-                onMessage(webSocket, bytes.utf8());
-            }
-
-            @Override
-            public void onClosing(WebSocket webSocket, int code, String reason) {
-                nativeLog("Native WebSocket: Closing socket... Code: " + code + " | Reason: " + reason, "warning");
-                DiagnosticLogger.log("[NATIVE WEBSOCKET] onClosing - Socket closing. Code: " + code + " | Reason: " + reason);
-                notifyWebOfClose(code, reason);
-            }
-
-            @Override
-            public void onClosed(WebSocket webSocket, int code, String reason) {
-                nativeLog("Native WebSocket: Connection closed. Code: " + code + " | Reason: " + reason, "info");
-                DiagnosticLogger.log("[NATIVE WEBSOCKET] onClosed - Socket closed. Code: " + code + " | Reason: " + reason);
-                notifyWebOfClose(code, reason);
-            }
-
-            @Override
-            public void onFailure(WebSocket webSocket, Throwable t, Response response) {
-                Log.e("WebAppInterface", "Native WebSocket Failure", t);
-                nativeLog("Native WebSocket: Pipeline error: " + t.getMessage(), "error");
-                DiagnosticLogger.log("[NATIVE WEBSOCKET] onFailure - WebSocket error: " + t.getMessage());
-                notifyWebOfError(t.getMessage());
-            }
-        });
-    }
-
-    /**
-     * Forwards standard audio PCM base64 input data to the native WebSocket stream.
-     */
-    @JavascriptInterface
-    public void sendAudioFrame(String base64Pcm) {
-        if (activeWebSocket != null) {
-            try {
-                org.json.JSONObject frame = new org.json.JSONObject();
-                org.json.JSONObject realtimeInput = new org.json.JSONObject();
-                org.json.JSONObject audio = new org.json.JSONObject();
-                audio.put("mimeType", "audio/pcm;rate=16000");
-                audio.put("data", base64Pcm);
-                realtimeInput.put("audio", audio);
-                frame.put("realtimeInput", realtimeInput);
-
-                activeWebSocket.send(frame.toString());
-            } catch (Exception e) {
-                Log.e("WebAppInterface", "Error constructing audio frame JSON", e);
-                nativeLog("Native WebSocket: Failed to send audio frame: " + e.getMessage(), "error");
-            }
-        } else {
-            nativeLog("Native WebSocket: sendAudioFrame aborted. Active socket is null.", "error");
-        }
-    }
-
-    /**
-     * Sends custom JSON textual query inputs down the native OkHttp WebSocket.
-     */
-    @JavascriptInterface
-    public void sendTextQuery(String clientContentJson) {
-        if (activeWebSocket != null) {
-            activeWebSocket.send(clientContentJson);
-        } else {
-            nativeLog("Native WebSocket: sendTextQuery aborted. Active socket is null.", "error");
-        }
-    }
-
-    /**
-     * Closes the active native WebSocket interface cleanly.
-     */
-    @JavascriptInterface
-    public void disconnectNativeWebSocket() {
-        synchronized (wsMessageBuffer) {
-            mainHandler.removeCallbacks(flushRunnable);
-            wsMessageBuffer.clear();
-            isFlushPending = false;
-        }
-        if (activeWebSocket != null) {
-            nativeLog("Bridge: disconnectNativeWebSocket requested.", "native");
-            DiagnosticLogger.log("[NATIVE WEBSOCKET] disconnectNativeWebSocket invoked.");
-            try {
-                activeWebSocket.close(1000, "User initiated closure");
-            } catch (Exception e) {
-                Log.e("WebAppInterface", "Error closing native WebSocket", e);
-            }
-            activeWebSocket = null;
-        }
-    }
-
-    private void notifyWebOfClose(final int code, final String reason) {
-        if (webView != null) {
-            webView.post(() -> {
-                webView.evaluateJavascript("if (window.onNativeWebSocketClose) { window.onNativeWebSocketClose(" + code + ", '" + escapeJsString(reason) + "'); }", null);
-            });
-        }
-    }
-
-    private void notifyWebOfError(final String error) {
-        if (webView != null) {
-            webView.post(() -> {
-                webView.evaluateJavascript("if (window.onNativeWebSocketError) { window.onNativeWebSocketError('" + escapeJsString(error) + "'); }", null);
-            });
         }
     }
 
@@ -1042,7 +819,6 @@ public class WebAppInterface {
 
     public void destroy() {
         nativeLog("Shutting down WebAppInterface Bridge...", "native");
-        disconnectNativeWebSocket();
         if (geminiService != null) {
             geminiService.shutdown();
         }
