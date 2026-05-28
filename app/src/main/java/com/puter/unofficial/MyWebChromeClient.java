@@ -36,6 +36,7 @@ import java.util.Locale;
  * for the WebView, enabling Base64 upload support for Puter AI interactions.
  * UPDATED: Added Console Message interception and moved to HTTPS Origin for persistence.
  * CORE FIX: Prevented OAuth interruption by allowing final redirects to load.
+ * TIMING FIX: Synchronized WebRTC permission requests to eliminate Android 9 WebView thread race conditions.
  */
 public class MyWebChromeClient extends WebChromeClient {
 
@@ -238,18 +239,19 @@ public class MyWebChromeClient extends WebChromeClient {
     /**
      * Intercepts standard HTML5 permission queries (such as Camera & Microphone).
      * Grants matching permissions cleanly to prevent WebRTC/getUserMedia silent halts.
+     * TIMING FIX: Executes synchronously to prevent WebView thread timeout rejections.
      */
     @Override
     public void onPermissionRequest(final PermissionRequest request) {
-        Log.d(TAG, "onPermissionRequest: Processing hardware capture access permission.");
-        activity.runOnUiThread(new Runnable() {
-            @Override
-            public void run() {
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
-                    request.grant(request.getResources());
-                }
+        Log.d(TAG, "onPermissionRequest: Processing hardware capture access permission synchronously.");
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+            try {
+                request.grant(request.getResources());
+                Log.d(TAG, "onPermissionRequest: Successfully granted resources: " + java.util.Arrays.toString(request.getResources()));
+            } catch (Exception e) {
+                Log.e(TAG, "onPermissionRequest: Failed to grant permission synchronously. Error: " + e.getMessage());
             }
-        });
+        }
     }
 
     // --- FILE UPLOAD LOGIC (UNCHANGED) ---
