@@ -3249,6 +3249,9 @@
 
     /* --- ADOPTED WEBSOCKET LIVE AUDIO ROUTING PIPELINES --- */
     function connectWebSocketLive(apiKey, modelId, voiceName, useSearch) {
+        // Set the transitional setup flag before triggering the reset cleanup [1]
+        window.isConnectingLiveSocket = true;
+        
         disconnectWebSocketLive();
         
         if (window.AndroidInterface) {
@@ -3264,6 +3267,7 @@
             liveWs = new WebSocket(url);
         } catch (err) {
             console.error("Live WebSocket creation exception: ", err);
+            window.isConnectingLiveSocket = false; // Reset the transitioning flag on initial failure [1]
             if (window.AndroidInterface) {
                 window.AndroidInterface.logDiagnostic("WebSockets construction threw exception: " + err.message, "ERROR");
                 window.AndroidInterface.logHtmlGlitch("index.html - WebSockets", "Creation Exception: " + err.message);
@@ -3313,6 +3317,9 @@
                 }
                 
                 if (payload.setupComplete) {
+                    // Reset transitional setup flag once handshake is fully confirmed [1]
+                    window.isConnectingLiveSocket = false;
+                    
                     if (window.AndroidInterface) {
                         window.AndroidInterface.logDiagnostic("Handshake handshake confirmed. Triggering capture initialization...", "NETWORK");
                         // Notify Android to cleanly release native SpeechRecognizer locks
@@ -3334,6 +3341,7 @@
                 }
                 
                 if (payload.error) {
+                    window.isConnectingLiveSocket = false; // Reset the transitioning flag [1]
                     console.error("Live server error returned:", payload.error);
                     if (window.AndroidInterface) {
                         window.AndroidInterface.logDiagnostic("Live session host returned structural error: " + JSON.stringify(payload.error), "ERROR");
@@ -3399,6 +3407,7 @@
                     }
                 }
             } catch (e) {
+                window.isConnectingLiveSocket = false; // Reset transitioning flag on error [1]
                 console.error("Live packet processing exception: ", e);
                 if (window.AndroidInterface) {
                     window.AndroidInterface.logDiagnostic("Error processing message frame: " + e.message, "ERROR");
@@ -3408,6 +3417,7 @@
         };
         
         liveWs.onclose = (event) => {
+            window.isConnectingLiveSocket = false; // Reset the transitioning flag on closure [1]
             if (window.AndroidInterface) {
                 window.AndroidInterface.logDiagnostic("WebSocket channel closed. Status Code: " + event.code + " | Reason: " + (event.reason || "None") + " | Clean close: " + event.wasClean, "NETWORK");
             }
@@ -3415,6 +3425,7 @@
         };
         
         liveWs.onerror = (err) => {
+            window.isConnectingLiveSocket = false; // Reset the transitioning flag on error [1]
             console.error("Live WebSockets channel error: ", err);
             if (window.AndroidInterface) {
                 window.AndroidInterface.logDiagnostic("WebSocket protocol network error observed. State: " + (liveWs ? liveWs.readyState : "null"), "ERROR");
@@ -3617,6 +3628,7 @@
         if (window.AndroidInterface) {
             window.AndroidInterface.logDiagnostic("disconnectWebSocketLive sequence initiated.", "NETWORK");
         }
+        // Gated call to prevent premature STT activations [1]
         if (!window.isConnectingLiveSocket) {
             if (window.AndroidInterface && window.AndroidInterface.setLiveSocketActive) {
                 window.AndroidInterface.setLiveSocketActive(false);
