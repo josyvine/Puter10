@@ -50,7 +50,6 @@ public class MainActivity extends AppCompatActivity {
 
     private WebView webView;
     private ValueCallback<Uri[]> uploadMessage;
-    private VoiceManager voiceManager;
     private WebAppInterface webAppInterface;
     private MyWebChromeClient myWebChromeClient; // Custom client for popups/uploads
 
@@ -217,12 +216,7 @@ public class MainActivity extends AppCompatActivity {
         webView.setWebChromeClient(myWebChromeClient);
 
         // --- Native Manager Initialization ---
-        voiceManager = new VoiceManager(this, webView);
         webAppInterface = new WebAppInterface(this, webView);
-
-        // Linking Voice and Bridge for Barge-in (Interruption) support
-        webAppInterface.setVoiceManager(voiceManager);
-        voiceManager.setBridge(webAppInterface);
 
         // --- JavaScript Bridge Registration ---
         // Exposes 'window.AndroidInterface' to the HTML/JS logic
@@ -395,7 +389,7 @@ public class MainActivity extends AppCompatActivity {
 
     @Override
     public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions, @NonNull int[] grantResults) {
-        super.onCreate(savedInstanceState);
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
         if (requestCode == PERMISSION_REQUEST_CODE) {
             boolean allGranted = true;
             boolean notificationPermissionGranted = true;
@@ -534,9 +528,6 @@ public class MainActivity extends AppCompatActivity {
         if (webView != null) {
             webView.stopLoading();
             webView.destroy();
-        }
-        if (voiceManager != null) {
-            voiceManager.destroy();
         }
         if (webAppInterface != null) {
             webAppInterface.destroy();
