@@ -51,7 +51,6 @@ public class WebAppInterface {
     private final Context context;
     private final WebView webView;
     private final SharedPreferences prefs;
-    private VoiceManager voiceManager;
     private GeminiService geminiService;
 
     // MODIFIED: Global static tracking for Live WebSocket session visibility
@@ -149,14 +148,6 @@ public class WebAppInterface {
         }
     }
 
-    /**
-     * Links the VoiceManager for background STT operations.
-     */
-    public void setVoiceManager(VoiceManager voiceManager) {
-        DiagnosticLogger.log("[LIFECYCLE] VoiceManager linked. Is NULL: " + (voiceManager == null));
-        this.voiceManager = voiceManager;
-    }
-
     // 3. NATIVE SPEECH RECOGNITION (Standard / REST Model On-Demand STT)
     // Triggers background microphone for the search input strictly as an on-demand tool.
     @JavascriptInterface
@@ -170,20 +161,8 @@ public class WebAppInterface {
             return;
         }
 
-        // Standard keyboard view: fallback to MainActivity background VoiceManager for standard REST models
-        if (voiceManager != null) {
-            DiagnosticLogger.log("[BRIDGE] Delegating startListening to standard background VoiceManager on UI thread.");
-            ((Activity) context).runOnUiThread(() -> {
-                try {
-                    voiceManager.startListening();
-                    DiagnosticLogger.log("[LIFECYCLE] background VoiceManager startListening() completed.");
-                } catch (Exception e) {
-                    DiagnosticLogger.log("[ERROR] Background VoiceManager failed to start listening: " + e.getMessage());
-                }
-            });
-        } else {
-            DiagnosticLogger.log("[BRIDGE] Warning: Background VoiceManager instance is currently NULL.");
-        }
+        // Native speech systems are completely disabled to allow secure WebRTC microphone ownership.
+        DiagnosticLogger.log("[BRIDGE] Native speech captures are disabled. Standard browser Web Speech API should be used.");
     }
 
     // =========================================================================
