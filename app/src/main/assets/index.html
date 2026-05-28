@@ -1392,7 +1392,6 @@
                 alert("Copied to clipboard");
             }
         } else if(action === 'read') {
-            // Context menu calls read with sanitized plain text extracted using innerText of the corresponding span
             const streamContentSpan = document.getElementById(id)?.querySelector('span[id^="stream-content-"]') || document.getElementById(id)?.querySelector('span[id^="live-span-"]');
             if (streamContentSpan) {
                 executeSpeechSynthesisFallback(streamContentSpan.innerText || streamContentSpan.textContent || "");
@@ -3410,4 +3409,3 @@
   </script>
 </body>
 </html>
-
