@@ -9,7 +9,7 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
 import android.content.SharedPreferences;
-import android.graphics.Bitmap; // Added for image decoding 
+import android.graphics.Bitmap; // Added for image decoding
 import android.graphics.BitmapFactory; // Added for image decoding
 import android.net.Uri;
 import android.os.Build; // Added for Scoped Storage compatibility
@@ -22,6 +22,8 @@ import android.webkit.WebView;
 import android.widget.Toast;
 import android.util.Log;
 import android.webkit.CookieManager;
+import android.media.AudioManager;
+import android.media.AudioRecordingConfiguration;
 
 import java.io.OutputStream; // Added for writing image data
 import java.io.IOException; // Added for exception handling
@@ -29,6 +31,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Objects; // Added for null checks on Objects
 import java.util.Date; // Added for unique file naming
+import java.util.List;
 
 /**
  * The core bridge class between the HTML JavaScript and Native Android code.
@@ -117,10 +120,14 @@ public class WebAppInterface {
         this.prefs = context.getSharedPreferences(AppConstants.PREF_NAME, Context.MODE_PRIVATE);
         this.geminiService = new GeminiService(context, webView);
 
+        DiagnosticLogger.log("[LIFECYCLE] WebAppInterface initialized. WebView secure origin check context verified.");
+
         // Initialize Native Android Text-To-Speech Engine (Requirement #4)
         this.tts = new TextToSpeech(context, status -> {
+            DiagnosticLogger.log("[LIFECYCLE] TextToSpeech asynchronous onInit status returned: " + status);
             if (status == TextToSpeech.SUCCESS) {
                 int result = tts.setLanguage(Locale.US);
+                DiagnosticLogger.log("[LIFECYCLE] TTS setLanguage language result: " + result);
                 if (result != TextToSpeech.LANG_MISSING_DATA && result != TextToSpeech.LANG_NOT_SUPPORTED) {
                     isTtsInitialized = true;
                     nativeLog("TTS Engine Initialized Successfully on Secure Origin", "native");
@@ -139,14 +146,33 @@ public class WebAppInterface {
         this.stopSpeakingReceiver = new BroadcastReceiver() {
             @Override
             public void onReceive(Context context, Intent intent) {
-                if ("PUTER_STOP_SPEAKING".equals(intent.getAction())) {
+                String action = intent.getAction();
+                if ("PUTER_STOP_SPEAKING".equals(action)) {
                     DiagnosticLogger.log("[INTENT] Received PUTER_STOP_SPEAKING. Triggering web-audio queue halt.");
                     stopSpeaking();
+                } else if ("PUTER_VOICE_DASHBOARD_CLOSED".equals(action)) {
+                    DiagnosticLogger.log("[INTENT] Received PUTER_VOICE_DASHBOARD_CLOSED. Dashboard closed natively. Resetting session states.");
+                    
+                    isVoiceModeActive = false;
+                    isVoiceModeActiveStatic = false;
+                    
+                    // Post to WebView to cleanly disconnect and close any active Live WebSockets
+                    webView.post(() -> {
+                        DiagnosticLogger.log("[BRIDGE] Force executing window.disconnectWebSocketLive() inside WebView context.");
+                        webView.evaluateJavascript("if (window.disconnectWebSocketLive) { window.disconnectWebSocketLive(); }", null);
+                    });
                 }
             }
         };
-        IntentFilter filter = new IntentFilter("PUTER_STOP_SPEAKING");
-        context.registerReceiver(this.stopSpeakingReceiver, filter);
+        IntentFilter filter = new IntentFilter();
+        filter.addAction("PUTER_STOP_SPEAKING");
+        filter.addAction("PUTER_VOICE_DASHBOARD_CLOSED");
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            context.registerReceiver(this.stopSpeakingReceiver, filter, Context.RECEIVER_EXPORTED);
+        } else {
+            context.registerReceiver(this.stopSpeakingReceiver, filter);
+        }
+        DiagnosticLogger.log("[LIFECYCLE] Registered stopSpeakingReceiver for barge-in and closing broadcast triggers.");
     }
 
     /**
@@ -170,19 +196,27 @@ public class WebAppInterface {
         if (tts != null) {
             tts.setOnUtteranceProgressListener(new UtteranceProgressListener() {
                 @Override
-                public void onStart(String utteranceId) {}
+                public void onStart(String utteranceId) {
+                    DiagnosticLogger.log("[TTS] Native TTS speech playback started. UtteranceId: " + utteranceId);
+                }
 
                 @Override
                 public void onDone(String utteranceId) {
+                    DiagnosticLogger.log("[TTS] Native TTS speech playback completed. UtteranceId: " + utteranceId);
                     // REQUIREMENT #2: Only re-open the mic if the user is in an active Voice session.
                     // This prevents the mic from opening during normal text chat.
                     if (isVoiceModeActive) {
+                        DiagnosticLogger.log("[TTS] isVoiceModeActive is true. Posting window.onSpeechFinished callback to web.");
                         webView.post(() -> webView.evaluateJavascript("if(window.onSpeechFinished){ window.onSpeechFinished(); }", null));
+                    } else {
+                        DiagnosticLogger.log("[TTS] isVoiceModeActive is false. Bypassing automatic mic restart.");
                     }
                 }
 
                 @Override
-                public void onError(String utteranceId) {}
+                public void onError(String utteranceId) {
+                    DiagnosticLogger.log("[TTS ERROR] Native TTS reported an error during playback of: " + utteranceId);
+                }
             });
         }
     }
@@ -218,6 +252,7 @@ public class WebAppInterface {
      * Links the VoiceManager for background STT operations.
      */
     public void setVoiceManager(VoiceManager voiceManager) {
+        DiagnosticLogger.log("[LIFECYCLE] VoiceManager linked. Is NULL: " + (voiceManager == null));
         this.voiceManager = voiceManager;
     }
 
@@ -239,6 +274,7 @@ public class WebAppInterface {
     // Supports Barge-in: stops current speech and starts new text immediately.
     @JavascriptInterface
     public void speak(String text) {
+        DiagnosticLogger.log("[BRIDGE] speak called. Length: " + (text != null ? text.length() : 0) + " characters.");
         if (isTtsInitialized && tts != null) {
             // Only speak if Voice Mode is active OR if manually requested by long-press
             nativeLog("AI speaking response via Native Engine...", "info");
@@ -254,6 +290,8 @@ public class WebAppInterface {
                 tts.speak(text, TextToSpeech.QUEUE_FLUSH, null, AppConstants.TTS_UTTERANCE_ID);
                 DiagnosticLogger.log("[LOCAL TTS] Speaking locally inside MainActivity context.");
             }
+        } else {
+            DiagnosticLogger.log("[TTS WARNING] speak skipped. isTtsInitialized: " + isTtsInitialized + " | tts is NULL: " + (tts == null));
         }
     }
 
@@ -276,6 +314,7 @@ public class WebAppInterface {
     // ENHANCED: Master Interruption logic halts standard speech, standard HTML5 elements, and custom WebAudio Live queues on barge-in.
     @JavascriptInterface
     public void stopSpeaking() {
+        DiagnosticLogger.log("[BRIDGE] stopSpeaking sequence triggered.");
         if (tts != null) {
             nativeLog("Stopping AI speech (Barge-in triggered)", "native");
             tts.stop();
@@ -306,7 +345,8 @@ public class WebAppInterface {
     // MODIFIED: Integrates explicit route redirection if continuous fullscreen voice agent is active.
     @JavascriptInterface
     public void startListening() {
-        nativeLog("startListening called. isVoiceModeActiveStatic: " + isVoiceModeActiveStatic, "native");
+        nativeLog("startListening called. isVoiceModeActiveStatic: " + isVoiceModeActiveStatic + " | isLiveSocketActive: " + isLiveSocketActive, "native");
+        DiagnosticLogger.log("[BRIDGE] startListening requested. isVoiceModeActiveStatic=" + isVoiceModeActiveStatic + " | isLiveSocketActive=" + isLiveSocketActive);
         stopSpeaking();
         if (isVoiceModeActiveStatic) {
             // Screen covered by VoiceAgentActivity: broadcast intent to restart foreground STT natively
@@ -316,7 +356,17 @@ public class WebAppInterface {
         } else {
             // Standard keyboard view: fallback to MainActivity background VoiceManager
             if (voiceManager != null) {
-                ((Activity) context).runOnUiThread(() -> voiceManager.startListening());
+                DiagnosticLogger.log("[BRIDGE] Delegating startListening to standard background VoiceManager on UI thread.");
+                ((Activity) context).runOnUiThread(() -> {
+                    try {
+                        voiceManager.startListening();
+                        DiagnosticLogger.log("[LIFECYCLE] background VoiceManager startListening() completed.");
+                    } catch (Exception e) {
+                        DiagnosticLogger.log("[ERROR] Background VoiceManager failed to start listening: " + e.getMessage());
+                    }
+                });
+            } else {
+                DiagnosticLogger.log("[BRIDGE] Warning: Background VoiceManager instance is currently NULL.");
             }
         }
     }
@@ -332,6 +382,7 @@ public class WebAppInterface {
     @JavascriptInterface
     public void pauseListening() {
         nativeLog("pauseListening triggered via JS bridge.", "native");
+        DiagnosticLogger.log("[BRIDGE] pauseListening triggered.");
         Intent intent = new Intent("PUTER_PAUSE_LISTENING");
         context.sendBroadcast(intent);
         DiagnosticLogger.log("[BROADCAST] Broadcasted PUTER_PAUSE_LISTENING to mute native microphone.");
@@ -343,6 +394,7 @@ public class WebAppInterface {
     @JavascriptInterface
     public void resumeListening() {
         nativeLog("resumeListening triggered via JS bridge.", "native");
+        DiagnosticLogger.log("[BRIDGE] resumeListening triggered.");
         Intent intent = new Intent("PUTER_START_LISTENING");
         context.sendBroadcast(intent);
         DiagnosticLogger.log("[BROADCAST] Broadcasted PUTER_START_LISTENING to resume native microphone.");
@@ -360,11 +412,33 @@ public class WebAppInterface {
     public void setLiveSocketActive(boolean active) {
         isLiveSocketActive = active;
         nativeLog("Bridge: Live Socket active state changed to: " + active, "info");
+        DiagnosticLogger.log("[BRIDGE] setLiveSocketActive triggered with active=" + active);
+
+        try {
+            AudioManager audioManager = (AudioManager) context.getSystemService(Context.AUDIO_SERVICE);
+            if (audioManager != null) {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                    List<AudioRecordingConfiguration> configs = audioManager.getActiveRecordingConfigurations();
+                    DiagnosticLogger.log("[HARDWARE CHECK] Active recording configurations count: " + configs.size());
+                    for (int i = 0; i < configs.size(); i++) {
+                        AudioRecordingConfiguration config = configs.get(i);
+                        DiagnosticLogger.log(String.format("[HARDWARE CHECK] RecordConfig [%d]: AudioSource=%d | ClientAudioSessionId=%d | FormatSampleRate=%d", 
+                            i, config.getClientAudioSource(), config.getClientAudioSessionId(), config.getFormat().getSampleRate()));
+                    }
+                } else {
+                    DiagnosticLogger.log("[HARDWARE CHECK] API Level too low for getActiveRecordingConfigurations check.");
+                }
+                DiagnosticLogger.log("[HARDWARE CHECK] Microphone is currently muted natively: " + audioManager.isMicrophoneMute());
+            }
+        } catch (Exception e) {
+            DiagnosticLogger.log("[ERROR] Hardware status check failed: " + e.getMessage());
+        }
 
         // Broadcast intent to update VoiceAgentActivity mic-lock structures
         Intent intent = new Intent("PUTER_LIVE_SOCKET_STATE");
         intent.putExtra("ACTIVE", active);
         context.sendBroadcast(intent);
+        DiagnosticLogger.log("[BROADCAST] Sent PUTER_LIVE_SOCKET_STATE intent. Active=" + active);
     }
 
     /**
@@ -373,6 +447,7 @@ public class WebAppInterface {
      */
     @JavascriptInterface
     public void broadcastUserTranscript(String text) {
+        DiagnosticLogger.log("[BRIDGE] broadcastUserTranscript invoked. Text: " + text);
         Intent intent = new Intent("PUTER_USER_TRANSCRIPT");
         intent.putExtra("TEXT", text);
         context.sendBroadcast(intent);
@@ -384,6 +459,7 @@ public class WebAppInterface {
     @JavascriptInterface
     public void startVoiceAgent() {
         nativeLog("Launching Immersive Full-Screen Voice Agent", "native");
+        DiagnosticLogger.log("[BRIDGE] startVoiceAgent triggered.");
         stopSpeaking();
         // Force Voice Mode active for the full-screen activity
         setVoiceMode(true);
@@ -392,6 +468,7 @@ public class WebAppInterface {
         if (voiceManager != null) {
             ((Activity) context).runOnUiThread(() -> {
                 try {
+                    DiagnosticLogger.log("[LIFECYCLE] Releasing MainActivity VoiceManager mic hardware.");
                     voiceManager.destroy(); // Cancel and destroy the background recognizer completely to free mic hardware
                     voiceManager = null; // Clear the reference
                     nativeLog("[LIFECYCLE] Background VoiceManager destroyed to yield mic hardware cleanly.", "native");
