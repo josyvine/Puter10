@@ -31,7 +31,6 @@ public class HomeFragment extends Fragment {
     private FragmentHomeBinding binding;
     private WebView webView;
     private WebAppInterface webAppInterface;
-    private VoiceManager voiceManager;
 
     @Nullable
     @Override
@@ -77,12 +76,7 @@ public class HomeFragment extends Fragment {
 
         // 2. Initialize the Native Managers
         // Note: Using getActivity() because the bridge requires an Activity context for UI operations
-        voiceManager = new VoiceManager(requireActivity(), webView);
         webAppInterface = new WebAppInterface(requireActivity(), webView);
-
-        // Link the managers to enable Barge-in and Microphone control
-        webAppInterface.setVoiceManager(voiceManager);
-        voiceManager.setBridge(webAppInterface);
 
         // 3. Set the Custom Puter WebView Client and Web Chrome Client
         // This handles authentication redirects, AssetLoader routing, file pickers, popups, and device permissions
@@ -109,9 +103,7 @@ public class HomeFragment extends Fragment {
 
     /**
      * Lifecycle hook called when the fragment comes back to the foreground.
-     * 
-     * CRITICAL FIX: Automatically re-initializes the standard background VoiceManager 
-     * instance on resume to restore speech dictation capabilities for standard chat mode.
+     * We cleanly resume WebView execution.
      */
     @Override
     public void onResume() {
@@ -120,49 +112,19 @@ public class HomeFragment extends Fragment {
             webView.onResume();
             webView.resumeTimers();
         }
-
-        // Re-initialize the background VoiceManager when MainActivity returns to focus
-        if (voiceManager == null && webView != null) {
-            try {
-                voiceManager = new VoiceManager(requireActivity(), webView);
-                if (webAppInterface != null) {
-                    webAppInterface.setVoiceManager(voiceManager);
-                }
-                WebAppInterface.DiagnosticLogger.log("[LIFECYCLE] HomeFragment onResume: Re-initialized background microphone context.");
-            } catch (Exception e) {
-                Log.e("HomeFragment", "Failed to re-initialize standard background VoiceManager: " + e.getMessage());
-            }
-        }
     }
 
     /**
      * Lifecycle hook called when the fragment is paused.
-     * 
-     * CRITICAL FIX: Completely destroys and releases the native background SpeechRecognizer 
-     * to free the hardware microphone lock. Simply calling stopListening() leaves the lock active.
+     * We cleanly pause WebView timers to prevent background resource leaks.
      */
     @Override
     public void onPause() {
         super.onPause();
-        
-        // De-register and destroy background STT recognizers in MainActivity to prevent hardware conflicts
-        if (voiceManager != null) {
-            try {
-                voiceManager.destroy(); // Completely cancel and destroy the recognizer to release the mic
-                voiceManager = null; // Clear the reference to force a clean re-initialization on resume
-                WebAppInterface.DiagnosticLogger.log("[LIFECYCLE] HomeFragment onPause: Destroyed native background microphone to release hardware lock.");
-            } catch (Exception e) {
-                Log.e("HomeFragment", "Failed to destroy standard background VoiceManager: " + e.getMessage());
-            }
-        }
 
         if (webView != null) {
-            // Prevent pausing background socket streams and JavaScript loops
-            // if the hands-free continuous voice conversation loop is running.
-            if (!isVoiceModeActive()) {
-                webView.onPause();
-                webView.pauseTimers();
-            }
+            webView.onPause();
+            webView.pauseTimers();
         }
     }
 
@@ -172,25 +134,11 @@ public class HomeFragment extends Fragment {
         if (webAppInterface != null) {
             webAppInterface.destroy();
         }
-        if (voiceManager != null) {
-            voiceManager.destroy();
-        }
         if (webView != null) {
             webView.stopLoading();
             webView.destroy();
         }
         super.onDestroyView();
         binding = null;
-    }
-
-    /**
-     * Helper method to check the static voice mode state from WebAppInterface.
-     */
-    private boolean isVoiceModeActive() {
-        try {
-            return WebAppInterface.isVoiceModeActiveStatic;
-        } catch (Exception e) {
-            return false;
-        }
     }
 }
