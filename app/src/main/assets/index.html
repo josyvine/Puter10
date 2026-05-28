@@ -620,6 +620,7 @@
     let activeSources = [];
     let pendingLiveQuery = null;
     let isLivePlaybackActive = false;
+    window.isConnectingLiveSocket = false; // Global flag to prevent premature STT reactivations during handshake
 
     /* FIX #1: AUTO-EXPANDING TEXTAREA LOGIC */
     function handleInput() {
@@ -3257,16 +3258,23 @@
         const url = `wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent?key=${apiKey}`;
         
         try {
+            if (window.AndroidInterface) {
+                window.AndroidInterface.logDiagnostic("Creating WebSocket instance with key length: " + (apiKey ? apiKey.length : 0), "NETWORK");
+            }
             liveWs = new WebSocket(url);
         } catch (err) {
             console.error("Live WebSocket creation exception: ", err);
             if (window.AndroidInterface) {
-                window.AndroidInterface.logDiagnostic("WebSockets construction threw: " + err.message, "ERROR");
+                window.AndroidInterface.logDiagnostic("WebSockets construction threw exception: " + err.message, "ERROR");
+                window.AndroidInterface.logHtmlGlitch("index.html - WebSockets", "Creation Exception: " + err.message);
             }
             return;
         }
         
         liveWs.onopen = () => {
+            if (window.AndroidInterface) {
+                window.AndroidInterface.logDiagnostic("WebSocket open event successfully fired. ReadyState: " + liveWs.readyState, "NETWORK");
+            }
             const setupMessage = {
                 setup: {
                     model: "models/" + modelId,
@@ -3285,7 +3293,7 @@
             };
             liveWs.send(JSON.stringify(setupMessage));
             if (window.AndroidInterface) {
-                window.AndroidInterface.logDiagnostic("Live session handshake setup payload sent.", "NETWORK");
+                window.AndroidInterface.logDiagnostic("Live session setup configuration frame dispatched to host.", "NETWORK");
             }
         };
         
@@ -3294,6 +3302,9 @@
         liveWs.onmessage = async (event) => {
             try {
                 let payload;
+                if (window.AndroidInterface) {
+                    window.AndroidInterface.logDiagnostic("WebSocket message block received. Data type: " + (event.data instanceof Blob ? "Blob" : typeof event.data), "NETWORK");
+                }
                 if (event.data instanceof Blob) {
                     const textData = await event.data.text();
                     payload = JSON.parse(textData);
@@ -3303,7 +3314,7 @@
                 
                 if (payload.setupComplete) {
                     if (window.AndroidInterface) {
-                        window.AndroidInterface.logDiagnostic("Handshake confirmed. Initializing capture pipeline...", "NETWORK");
+                        window.AndroidInterface.logDiagnostic("Handshake handshake confirmed. Triggering capture initialization...", "NETWORK");
                         // Notify Android to cleanly release native SpeechRecognizer locks
                         if (window.AndroidInterface.setLiveSocketActive) {
                             window.AndroidInterface.setLiveSocketActive(true);
@@ -3313,6 +3324,9 @@
                     
                     // Dispatch any stored/pending query that initiated the connection
                     if (pendingLiveQuery) {
+                        if (window.AndroidInterface) {
+                            window.AndroidInterface.logDiagnostic("Sending deferred query following socket activation: " + pendingLiveQuery.text.substring(0, 15) + "...", "QUERY");
+                        }
                         sendLiveTextQuery(pendingLiveQuery.text, pendingLiveQuery.files);
                         pendingLiveQuery = null;
                     }
@@ -3322,7 +3336,8 @@
                 if (payload.error) {
                     console.error("Live server error returned:", payload.error);
                     if (window.AndroidInterface) {
-                        window.AndroidInterface.logDiagnostic("Live server returned error: " + JSON.stringify(payload.error), "ERROR");
+                        window.AndroidInterface.logDiagnostic("Live session host returned structural error: " + JSON.stringify(payload.error), "ERROR");
+                        window.AndroidInterface.reportGlitchedLogic("GEMINI_LIVE_SERVER_ERROR", JSON.stringify(payload.error));
                     }
                     disconnectWebSocketLive();
                     return;
@@ -3334,7 +3349,7 @@
                     // Unified Live Barge-in Interruption Hook
                     if (content.interrupted) {
                         if (window.AndroidInterface) {
-                            window.AndroidInterface.logDiagnostic("⚡ Interruption signal received. Halting audio buffers.", "BARGE_IN");
+                            window.AndroidInterface.logDiagnostic("⚡ Live Barge-in Interruption packet received. Purging audio buffers.", "BARGE_IN");
                         }
                         clearPlaybackQueueLive();
                         if (currentLiveBotSpan) {
@@ -3369,6 +3384,9 @@
                     }
                     
                     if (content.turnComplete) {
+                        if (window.AndroidInterface) {
+                            window.AndroidInterface.logDiagnostic("Live agent server turn execution completed.", "NETWORK");
+                        }
                         currentLiveBotSpan = null;
                     }
                     
@@ -3382,12 +3400,16 @@
                 }
             } catch (e) {
                 console.error("Live packet processing exception: ", e);
+                if (window.AndroidInterface) {
+                    window.AndroidInterface.logDiagnostic("Error processing message frame: " + e.message, "ERROR");
+                    window.AndroidInterface.logHtmlGlitch("index.html - WebSockets onmessage", e.message);
+                }
             }
         };
         
         liveWs.onclose = (event) => {
             if (window.AndroidInterface) {
-                window.AndroidInterface.logDiagnostic("WebSocket closed. Code: " + event.code + " | Reason: " + (event.reason || "None"), "NETWORK");
+                window.AndroidInterface.logDiagnostic("WebSocket channel closed. Status Code: " + event.code + " | Reason: " + (event.reason || "None") + " | Clean close: " + event.wasClean, "NETWORK");
             }
             disconnectWebSocketLive();
         };
@@ -3395,19 +3417,67 @@
         liveWs.onerror = (err) => {
             console.error("Live WebSockets channel error: ", err);
             if (window.AndroidInterface) {
-                window.AndroidInterface.logDiagnostic("WebSocket protocol error observed.", "ERROR");
+                window.AndroidInterface.logDiagnostic("WebSocket protocol network error observed. State: " + (liveWs ? liveWs.readyState : "null"), "ERROR");
             }
         };
     }
 
     async function initMicrophoneCaptureLive() {
+        if (window.AndroidInterface) {
+            window.AndroidInterface.logDiagnostic("WebRTC initMicrophoneCaptureLive starting. Checking secure origin context: " + window.isSecureContext, "WEBRTC");
+            
+            // Enumerate media devices first to diagnose hardware availability
+            try {
+                const devices = await navigator.mediaDevices.enumerateDevices();
+                let audioInputs = devices.filter(d => d.kind === 'audioinput');
+                window.AndroidInterface.logDiagnostic("Total media devices found: " + devices.length + " | Audio inputs: " + audioInputs.length, "WEBRTC");
+                audioInputs.forEach((dev, idx) => {
+                    window.AndroidInterface.logDiagnostic(`Audio Input [${idx}]: ID=${dev.deviceId} | Label="${dev.label || 'Permission Protected'}" | GroupID=${dev.groupId}`, "WEBRTC");
+                });
+            } catch (enumErr) {
+                window.AndroidInterface.logDiagnostic("Failed to enumerate devices: " + enumErr.message, "WEBRTC");
+            }
+
+            // Check permissions API
+            if (navigator.permissions && navigator.permissions.query) {
+                try {
+                    const status = await navigator.permissions.query({ name: 'microphone' });
+                    window.AndroidInterface.logDiagnostic("Permissions API 'microphone' state: " + status.state, "WEBRTC");
+                } catch (permErr) {
+                    window.AndroidInterface.logDiagnostic("Failed to query permissions API: " + permErr.message, "WEBRTC");
+                }
+            } else {
+                window.AndroidInterface.logDiagnostic("navigator.permissions.query is not supported on this browser context.", "WEBRTC");
+            }
+        }
+
         try {
+            if (window.AndroidInterface) {
+                window.AndroidInterface.logDiagnostic("Invoking navigator.mediaDevices.getUserMedia({ audio: true })...", "WEBRTC");
+            }
             const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
             liveMicStream = stream;
             
+            if (window.AndroidInterface) {
+                const tracks = stream.getAudioTracks();
+                window.AndroidInterface.logDiagnostic("Acquired stream tracks count: " + tracks.length, "WEBRTC");
+                tracks.forEach((track, idx) => {
+                    window.AndroidInterface.logDiagnostic(`Track [${idx}]: Label="${track.label}" | Id=${track.id} | Kind=${track.kind} | Enabled=${track.enabled} | ReadyState=${track.readyState}`, "WEBRTC");
+                });
+            }
+
             liveAudioContext = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
+            if (window.AndroidInterface) {
+                window.AndroidInterface.logDiagnostic("liveAudioContext initialized. state: " + liveAudioContext.state + " | sampleRate: " + liveAudioContext.sampleRate, "WEBAUDIO");
+            }
+
+            liveAudioContext.onstatechange = () => {
+                if (window.AndroidInterface) {
+                    window.AndroidInterface.logDiagnostic("liveAudioContext state changed to: " + liveAudioContext.state, "WEBAUDIO");
+                }
+            };
+
             const source = liveAudioContext.createMediaStreamSource(stream);
-            
             liveAudioProcessor = liveAudioContext.createScriptProcessor(2048, 1, 1);
             
             liveAudioProcessor.onaudioprocess = (e) => {
@@ -3443,7 +3513,11 @@
         } catch (err) {
             console.error("Live microphone acquisition failed: ", err);
             if (window.AndroidInterface) {
-                window.AndroidInterface.logDiagnostic("WebRTC microphone acquisition failed: " + err.name + " (" + err.message + "). Bypassing microphone stream.", "WEBRTC");
+                let logErr = "WebRTC microphone acquisition failed: " + err.name + " (" + err.message + ")";
+                if (err.stack) logErr += " | Stack: " + err.stack;
+                if (err.constraint) logErr += " | Constraint: " + err.constraint;
+                window.AndroidInterface.logDiagnostic(logErr + ". Bypassing microphone stream.", "WEBRTC");
+                window.AndroidInterface.logHtmlGlitch("index.html - WebRTC", logErr);
             }
             // MODIFIED: Do not call disconnectWebSocketLive() on WebRTC microphone errors! 
             // In hybrid mode, the native VoiceAgentActivity captures the user speech natively 
@@ -3493,6 +3567,14 @@
         try {
             if (!livePlayCtx) {
                 livePlayCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 24000 });
+                if (window.AndroidInterface) {
+                    window.AndroidInterface.logDiagnostic("livePlayCtx initialized. State: " + livePlayCtx.state + " | sampleRate: " + livePlayCtx.sampleRate, "WEBAUDIO");
+                }
+                livePlayCtx.onstatechange = () => {
+                    if (window.AndroidInterface) {
+                        window.AndroidInterface.logDiagnostic("livePlayCtx state changed to: " + livePlayCtx.state, "WEBAUDIO");
+                    }
+                };
             }
             
             const rawBuffer = base64ToArrayBuffer(base64Data);
@@ -3525,17 +3607,37 @@
             activeSources = activeSources.filter(item => item.endTime > currentTime);
         } catch (err) {
             console.error("Live queue scheduling exception: ", err);
+            if (window.AndroidInterface) {
+                window.AndroidInterface.logDiagnostic("Live audio schedule exception: " + err.message, "ERROR");
+            }
         }
     }
 
     function disconnectWebSocketLive() {
-        if (window.AndroidInterface && window.AndroidInterface.setLiveSocketActive) {
-            window.AndroidInterface.setLiveSocketActive(false);
+        if (window.AndroidInterface) {
+            window.AndroidInterface.logDiagnostic("disconnectWebSocketLive sequence initiated.", "NETWORK");
+        }
+        if (!window.isConnectingLiveSocket) {
+            if (window.AndroidInterface && window.AndroidInterface.setLiveSocketActive) {
+                window.AndroidInterface.setLiveSocketActive(false);
+            }
         }
         if (liveMicStream) {
             try {
-                liveMicStream.getTracks().forEach(track => track.stop());
-            } catch(e) {}
+                if (window.AndroidInterface) {
+                    window.AndroidInterface.logDiagnostic("Releasing liveMicStream audio tracks.", "WEBRTC");
+                }
+                liveMicStream.getTracks().forEach(track => {
+                    track.stop();
+                    if (window.AndroidInterface) {
+                        window.AndroidInterface.logDiagnostic("Stopped stream track: " + track.label, "WEBRTC");
+                    }
+                });
+            } catch(e) {
+                if (window.AndroidInterface) {
+                    window.AndroidInterface.logDiagnostic("Error releasing audio tracks: " + e.message, "WEBRTC");
+                }
+            }
             liveMicStream = null;
         }
         if (liveAudioProcessor) {
@@ -3545,17 +3647,44 @@
             liveAudioProcessor = null;
         }
         if (liveAudioContext) {
-            liveAudioContext.close().catch(() => {});
+            if (window.AndroidInterface) {
+                window.AndroidInterface.logDiagnostic("Closing liveAudioContext. Pre-close state: " + liveAudioContext.state, "WEBAUDIO");
+            }
+            liveAudioContext.close().then(() => {
+                if (window.AndroidInterface) {
+                    window.AndroidInterface.logDiagnostic("liveAudioContext cleanly closed.", "WEBAUDIO");
+                }
+            }).catch((e) => {
+                if (window.AndroidInterface) {
+                    window.AndroidInterface.logDiagnostic("Error closing liveAudioContext: " + e.message, "WEBAUDIO");
+                }
+            });
             liveAudioContext = null;
         }
         clearPlaybackQueueLive();
         if (livePlayCtx) {
-            livePlayCtx.close().catch(() => {});
+            if (window.AndroidInterface) {
+                window.AndroidInterface.logDiagnostic("Closing livePlayCtx. Pre-close state: " + livePlayCtx.state, "WEBAUDIO");
+            }
+            livePlayCtx.close().then(() => {
+                if (window.AndroidInterface) {
+                    window.AndroidInterface.logDiagnostic("livePlayCtx cleanly closed.", "WEBAUDIO");
+                }
+            }).catch((e) => {
+                if (window.AndroidInterface) {
+                    window.AndroidInterface.logDiagnostic("Error closing livePlayCtx: " + e.message, "WEBAUDIO");
+                }
+            });
             livePlayCtx = null;
         }
         if (liveWs) {
             if (liveWs.readyState === WebSocket.OPEN || liveWs.readyState === WebSocket.CONNECTING) {
-                liveWs.close();
+                try {
+                    if (window.AndroidInterface) {
+                        window.AndroidInterface.logDiagnostic("Closing liveWs connection.", "NETWORK");
+                    }
+                    liveWs.close();
+                } catch(e) {}
             }
             liveWs = null;
         }
@@ -3607,3 +3736,4 @@
   </script>
 </body>
 </html>
+
