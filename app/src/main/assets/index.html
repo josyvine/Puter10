@@ -186,6 +186,19 @@
     .mic-btn-cls { right: 48px; }
     .voice-agent-btn-cls { right: 6px; color: #1a73e8; }
 
+    /* Multi-color blinking keyframe animation for the active voice session */
+    @keyframes sparkle-blink {
+      0% { color: #1a73e8; }      /* Blue */
+      25% { color: #a066ff; }     /* Purple */
+      50% { color: #ec407a; }     /* Pink */
+      75% { color: #00bcd4; }     /* Teal/Cyan */
+      100% { color: #1a73e8; }    /* Blue */
+    }
+
+    .sparkle-active {
+      animation: sparkle-blink 1.5s infinite linear !important;
+    }
+
     .search-bar-container .send-btn-cls { 
         right: 6px; 
         background-color: #1a73e8 !important; 
@@ -390,7 +403,7 @@
 
           <!-- 3. TTS/Voice Agent: Extreme Right -->
           <button class="action-button voice-agent-btn-cls" onclick="triggerVoiceAgent()">
-            <span class="material-symbols-outlined">auto_awesome</span>
+            <span class="material-symbols-outlined" id="voiceAgentIcon">auto_awesome</span>
           </button>
 
           <!-- 4. Send Button: Replaces Mic and TTS when text is present -->
@@ -975,10 +988,23 @@
     }
 
     function triggerVoiceAgent() {
+        // Toggle check: If the live connection is already active or connecting, disconnect it cleanly
+        if (liveWs && (liveWs.readyState === WebSocket.OPEN || liveWs.readyState === WebSocket.CONNECTING)) {
+            disconnectWebSocketLive();
+            return;
+        }
+
         isVoiceResponseActive = true;
         if (window.AndroidInterface && window.AndroidInterface.setVoiceMode) {
             window.AndroidInterface.setVoiceMode(true);
         }
+
+        // Start multi-color blinking immediately when clicking the sparkle
+        const icon = document.getElementById("voiceAgentIcon");
+        if (icon) {
+            icon.classList.add("sparkle-active");
+        }
+
         window.switchToLiveMode();
     }
 
@@ -1778,7 +1804,7 @@
           name: fileName,
           type: mime,
           data: base64
-      });
+          });
 
       renderThumbnails();
       handleInput();
@@ -2873,6 +2899,13 @@
         const apiKey = window.AndroidInterface ? window.AndroidInterface.getGeminiApiKey() : (localStorage.getItem("gemini_user_api_key") || "");
         if (!apiKey) {
             alert("Please configure a valid Gemini Access API key first in Settings.");
+            
+            // Remove the active animation class if connection fails early
+            const icon = document.getElementById("voiceAgentIcon");
+            if (icon) {
+                icon.classList.remove("sparkle-active");
+            }
+
             if (window.AndroidInterface) {
                 window.AndroidInterface.logDiagnostic("switchToLiveMode failed: Missing API Key.", "ERROR");
             }
@@ -3390,6 +3423,12 @@
                 } catch(e) {}
             }
             liveWs = null;
+        }
+
+        // Revert the sparkle icon back to original static state
+        const icon = document.getElementById("voiceAgentIcon");
+        if (icon) {
+            icon.classList.remove("sparkle-active");
         }
     }
 
