@@ -186,44 +186,124 @@
     .mic-btn-cls { right: 48px; }
     .voice-agent-btn-cls { right: 6px; color: #1a73e8; }
 
-    /* Base color styling for the voice agent icon inside the WebView context */
+    /* --- NATIVE GEMINI INDICATOR SYSTEM (WEBVIEW OPTIMIZED) --- */
+    .ai-indicator {
+       position: relative;
+       width: 40px;
+       height: 40px;
+       display: flex;
+       align-items: center;
+       justify-content: center;
+    }
+
+    /* Base color styling for the voice agent icon */
     #voiceAgentIcon {
       color: #1a73e8 !important;
       display: inline-block;
       transform-origin: center;
     }
 
-    /* GPU-accelerated hue rotation bypassing text rendering limitations of Android System WebViews */
-    @keyframes webview-hue-shift {
-      0% {
-        filter: hue-rotate(0deg) saturate(1);
+    /* Orbit star default structural styling */
+    .orbit-star {
+       position: absolute;
+       left: 50%;
+       top: 50%;
+       margin-left: -5px; /* Centers ✦ cleanly on GPU layer */
+       margin-top: -6px;
+       transform-origin: 0 0;
+       color: #1a73e8;
+       font-size: 12px;
+       line-height: 1;
+       opacity: 0;
+       visibility: hidden;
+       pointer-events: none;
+       will-change: transform, opacity, filter;
+    }
+
+    /* Center star scale pulse */
+    @keyframes pulse {
+      0%, 100% {
+        transform: scale(1);
       }
       50% {
-        filter: hue-rotate(180deg) saturate(1.5);
+        transform: scale(1.25);
+      }
+    }
+
+    /* Orbital path calculation keeping the ✦ vertically aligned */
+    @keyframes orbit {
+       from {
+          transform:
+            rotate(0deg)
+            translateX(18px)
+            rotate(0deg);
+       }
+       to {
+          transform:
+            rotate(360deg)
+            translateX(18px)
+            rotate(-360deg);
+       }
+    }
+
+    /* Compositor-accelerated opacity blink */
+    @keyframes blink {
+       0%, 100% {
+          opacity: 1;
+       }
+       50% {
+          opacity: .2;
+       }
+    }
+
+    /* GPU-accelerated hue shift to bypass layout painting blocks on native Android WebViews */
+    @keyframes webview-hue-shift {
+      0% {
+        filter: hue-rotate(0deg) saturate(1.2);
+      }
+      50% {
+        filter: hue-rotate(180deg) saturate(1.6);
       }
       100% {
-        filter: hue-rotate(360deg) saturate(1);
+        filter: hue-rotate(360deg) saturate(1.2);
       }
     }
 
-    /* GPU-accelerated rotation to make outer offset sparkles cleanly circle */
-    @keyframes sparkle-rotate {
-      from {
-        transform: rotate(0deg);
-      }
-      to {
-        transform: rotate(360deg);
-      }
-    }
-
-    /* High specificity selector executing hardware rendering via compositor thread layers */
+    /* Active voice state center icon triggers */
     #voiceAgentIcon.sparkle-active {
       display: inline-block !important;
       transform-origin: center !important;
-      will-change: filter, transform;
+      will-change: transform, filter;
       animation: 
-        webview-hue-shift 3s infinite linear !important, 
-        sparkle-rotate 3.5s infinite linear !important;
+        pulse 1.2s infinite ease-in-out !important,
+        webview-hue-shift 3s infinite linear !important;
+    }
+
+    /* Sibling toggles executing orbital loops concurrently */
+    #voiceAgentIcon.sparkle-active ~ .orbit-star {
+       visibility: visible;
+       opacity: 1;
+    }
+
+    #voiceAgentIcon.sparkle-active ~ .orbit-star.s1 {
+       animation:
+          orbit 2s linear infinite,
+          blink 1s ease-in-out infinite,
+          webview-hue-shift 3s infinite linear !important;
+    }
+
+    #voiceAgentIcon.sparkle-active ~ .orbit-star.s2 {
+       animation:
+          orbit 3s linear infinite,
+          blink 1.3s ease-in-out infinite,
+          webview-hue-shift 3s infinite linear !important;
+    }
+
+    #voiceAgentIcon.sparkle-active ~ .orbit-star.s3 {
+       animation:
+          orbit 4s linear infinite,
+          blink 0.8s ease-in-out infinite,
+          webview-hue-shift 3s infinite linear !important;
     }
 
     .search-bar-container .send-btn-cls { 
@@ -428,9 +508,14 @@
             <span class="material-symbols-outlined">mic</span>
           </button>
 
-          <!-- 3. TTS/Voice Agent: Extreme Right -->
+          <!-- 3. TTS/Voice Agent: Extreme Right (HTML structure wrapper with separate orbiting elements) -->
           <button class="action-button voice-agent-btn-cls" onclick="triggerVoiceAgent()">
-            <span class="material-symbols-outlined" id="voiceAgentIcon">auto_awesome</span>
+            <div class="ai-indicator">
+                <span id="voiceAgentIcon" class="material-symbols-outlined">auto_awesome</span>
+                <span class="orbit-star s1">✦</span>
+                <span class="orbit-star s2">✦</span>
+                <span class="orbit-star s3">✦</span>
+            </div>
           </button>
 
           <!-- 4. Send Button: Replaces Mic and TTS when text is present -->
