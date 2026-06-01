@@ -186,17 +186,44 @@
     .mic-btn-cls { right: 48px; }
     .voice-agent-btn-cls { right: 6px; color: #1a73e8; }
 
-    /* Multi-color blinking keyframe animation for the active voice session */
-    @keyframes sparkle-blink {
-      0% { color: #1a73e8; }      /* Blue */
-      25% { color: #a066ff; }     /* Purple */
-      50% { color: #ec407a; }     /* Pink */
-      75% { color: #00bcd4; }     /* Teal/Cyan */
-      100% { color: #1a73e8; }    /* Blue */
+    /* Base color styling for the voice agent icon inside the WebView context */
+    #voiceAgentIcon {
+      color: #1a73e8 !important;
+      display: inline-block;
+      transform-origin: center;
     }
 
-    .sparkle-active {
-      animation: sparkle-blink 1.5s infinite linear !important;
+    /* GPU-accelerated hue rotation bypassing text rendering limitations of Android System WebViews */
+    @keyframes webview-hue-shift {
+      0% {
+        filter: hue-rotate(0deg) saturate(1);
+      }
+      50% {
+        filter: hue-rotate(180deg) saturate(1.5);
+      }
+      100% {
+        filter: hue-rotate(360deg) saturate(1);
+      }
+    }
+
+    /* GPU-accelerated rotation to make outer offset sparkles cleanly circle */
+    @keyframes sparkle-rotate {
+      from {
+        transform: rotate(0deg);
+      }
+      to {
+        transform: rotate(360deg);
+      }
+    }
+
+    /* High specificity selector executing hardware rendering via compositor thread layers */
+    #voiceAgentIcon.sparkle-active {
+      display: inline-block !important;
+      transform-origin: center !important;
+      will-change: filter, transform;
+      animation: 
+        webview-hue-shift 3s infinite linear !important, 
+        sparkle-rotate 3.5s infinite linear !important;
     }
 
     .search-bar-container .send-btn-cls { 
@@ -2135,7 +2162,7 @@
 
         appendChat("User", queryText, false, []);
 
-        const loaderId = Date.now() + "_" + Math.floor(Math.random() * 1000000);
+        const loaderId = Math.now ? Math.now() : Date.now() + "_" + Math.floor(Math.random() * 1000000);
         const log = document.getElementById('puterChatLog');
         const div = document.createElement('div');
         div.className = "message bot-message";
