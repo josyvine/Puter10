@@ -38,6 +38,23 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale; // Added for native TTS Locale
 
+import android.app.Dialog;
+import android.view.Window;
+import android.view.WindowManager;
+import android.view.Gravity;
+import android.widget.ImageButton;
+import android.widget.TextView;
+import android.widget.ProgressBar;
+import java.io.IOException;
+import okhttp3.Call;
+import okhttp3.Callback;
+import okhttp3.MediaType;
+import okhttp3.OkHttpClient;
+import okhttp3.Request;
+import okhttp3.RequestBody;
+import okhttp3.Response;
+import org.json.JSONObject;
+
 /**
  * MainActivity: The primary host for the Puter Unofficial WebView.
  * Handles permissions, hardware-level WebView configuration, 
@@ -633,5 +650,103 @@ public class MainActivity extends AppCompatActivity implements TextToSpeech.OnIn
         }
         scrapeHandler.removeCallbacksAndMessages(null); // Purge any remaining scraper handshakes
         super.onDestroy();
+    }
+
+    /**
+     * Displays a full-screen, native contact and feedback dialog [1].
+     * Validates input fields and issues an asynchronous HTTP POST payload containing
+     * the captured details directly to the Formspree endpoint using OkHttp [1].
+     */
+    public void openContactDialog() {
+        runOnUiThread(() -> {
+            Dialog dialog = new Dialog(MainActivity.this, android.R.style.Theme_DeviceDefault_Light_NoActionBar);
+            dialog.requestWindowFeature(Window.FEATURE_NO_TITLE);
+            dialog.setContentView(R.layout.dialog_contact);
+
+            Window window = dialog.getWindow();
+            if (window != null) {
+                window.setLayout(WindowManager.LayoutParams.MATCH_PARENT, WindowManager.LayoutParams.MATCH_PARENT);
+                window.setGravity(Gravity.CENTER);
+            }
+
+            EditText etName = dialog.findViewById(R.id.contactNameInput);
+            EditText etEmail = dialog.findViewById(R.id.contactEmailInput);
+            EditText etFeedback = dialog.findViewById(R.id.contactFeedbackInput);
+            Button btnSend = dialog.findViewById(R.id.contactSendBtn);
+            ImageButton btnClose = dialog.findViewById(R.id.contactCloseBtn);
+            ProgressBar progressBar = dialog.findViewById(R.id.contactProgressBar);
+
+            btnClose.setOnClickListener(v -> dialog.dismiss());
+
+            btnSend.setOnClickListener(v -> {
+                String name = etName.getText().toString().trim();
+                String email = etEmail.getText().toString().trim();
+                String feedback = etFeedback.getText().toString().trim();
+
+                if (name.isEmpty() || email.isEmpty() || feedback.isEmpty()) {
+                    Toast.makeText(MainActivity.this, "All input fields must be filled.", Toast.LENGTH_SHORT).show();
+                    return;
+                }
+
+                if (!android.util.Patterns.EMAIL_ADDRESS.matcher(email).matches()) {
+                    Toast.makeText(MainActivity.this, "A valid email address is required.", Toast.LENGTH_SHORT).show();
+                    return;
+                }
+
+                progressBar.setVisibility(View.VISIBLE);
+                btnSend.setEnabled(false);
+
+                OkHttpClient client = new OkHttpClient();
+                try {
+                    JSONObject json = new JSONObject();
+                    json.put("name", name);
+                    json.put("email", email);
+                    json.put("feedback", feedback);
+
+                    RequestBody body = RequestBody.create(json.toString(), MediaType.get("application/json; charset=utf-8"));
+                    Request request = new Request.Builder()
+                            .url("https://formspree.io/f/xyzenlao")
+                            .post(body)
+                            .build();
+
+                    client.newCall(request).enqueue(new Callback() {
+                        @Override
+                        public void onFailure(@NonNull Call call, @NonNull IOException e) {
+                            runOnUiThread(() -> {
+                                progressBar.setVisibility(View.GONE);
+                                btnSend.setEnabled(true);
+                                Toast.makeText(MainActivity.this, "Network failure: " + e.getMessage(), Toast.LENGTH_LONG).show();
+                                ActionReportLogger.logError("CONTACT_API_FAILURE", e.getMessage());
+                            });
+                        }
+
+                        @Override
+                        public void onResponse(@NonNull Call call, @NonNull Response response) throws IOException {
+                            final String bodyResponse = response.body() != null ? response.body().string() : "";
+                            runOnUiThread(() -> {
+                                progressBar.setVisibility(View.GONE);
+                                btnSend.setEnabled(true);
+                                if (response.isSuccessful()) {
+                                    Toast.makeText(MainActivity.this, "Message sent successfully!", Toast.LENGTH_LONG).show();
+                                    ActionReportLogger.logAction("CONTACT_API_SUCCESS", "Feedback received by Formspree");
+                                    dialog.dismiss();
+                                } else {
+                                    Toast.makeText(MainActivity.this, "API rejected submission: HTTP " + response.code(), Toast.LENGTH_LONG).show();
+                                    ActionReportLogger.logError("CONTACT_API_REJECTION", "HTTP " + response.code() + ": " + bodyResponse);
+                                }
+                            });
+                        }
+                    });
+
+                } catch (Exception err) {
+                    progressBar.setVisibility(View.GONE);
+                    btnSend.setEnabled(true);
+                    Toast.makeText(MainActivity.this, "Payload exception: " + err.getMessage(), Toast.LENGTH_SHORT).show();
+                    ActionReportLogger.logError("CONTACT_PAYLOAD_EXCEPTION", err.getMessage());
+                }
+            });
+
+            dialog.show();
+        });
     }
 }
