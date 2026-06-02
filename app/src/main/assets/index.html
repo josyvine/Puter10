@@ -540,7 +540,10 @@
   <!-- HELP MODAL -->
   <div class="modal-overlay" id="helpModal">
     <div class="modal">
-      <h3>Puter Unofficial Help</h3>
+      <h3 style="display: flex; align-items: center; gap: 8px;">
+        <span class="material-symbols-outlined" onclick="openContactDialog()" style="cursor: pointer; color: #1a73e8; font-size: 24px;" title="Contact Support">mail</span>
+        <span>Puter Unofficial Help</span>
+      </h3>
       <p>• <b>Text Chat:</b> Type your message and hit send.</p>
       <p>• <b>Long-Press:</b> Hold any chat bubble to Copy, Delete, or Read Aloud.</p>
       <p>• <b>Vision:</b> Use the '+' icon to upload images and files for the AI to analyze.</p>
@@ -3799,6 +3802,16 @@
             console.error("CRITICAL: Puter.js SDK failed to load on this origin!");
         }
     };
+
+    function openContactDialog() {
+        if (window.AndroidInterface && window.AndroidInterface.openContactDialog) {
+            window.AndroidInterface.openContactDialog();
+        } else {
+            console.warn("openContactDialog: AndroidInterface not found.");
+            alert("This option is only supported in the mobile application.");
+        }
+    }
   </script>
 </body>
 </html>
+
