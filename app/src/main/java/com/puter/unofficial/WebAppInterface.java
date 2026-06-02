@@ -312,6 +312,20 @@ public class WebAppInterface {
     }
 
     @JavascriptInterface
+    public void openContactDialog() {
+        nativeLog("openContactDialog requested via JS bridge.", "info");
+        DiagnosticLogger.log("[BRIDGE] openContactDialog invoked.");
+        if (context instanceof MainActivity) {
+            ((MainActivity) context).runOnUiThread(() -> {
+                ((MainActivity) context).openContactDialog();
+            });
+        } else {
+            nativeLog("openContactDialog aborted: Context is not an instance of MainActivity.", "error");
+            DiagnosticLogger.log("[BRIDGE] openContactDialog failure: Context is not MainActivity.");
+        }
+    }
+
+    @JavascriptInterface
     public void saveChatSession(String sessionId, String sessionData) {
         prefs.edit().putString("session_" + sessionId, sessionData).apply();
         nativeLog("Session " + sessionId + " persisted to native storage.", "native");
