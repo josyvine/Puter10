@@ -330,7 +330,7 @@
     .modal-overlay { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.6); z-index: 1000; align-items: center; justify-content: center; backdrop-filter: blur(2px); }
     .modal { background: #fff; padding: 25px; width: 90%; max-width: 500px; border-radius: 12px; box-shadow: 0 10px 25px rgba(0,0,0,0.3); max-height: 80vh; overflow-y: auto; }
     .modal h3 { margin-top: 0; margin-bottom: 15px; color: #333; border-bottom: 1px solid #eee; padding-bottom: 10px; }
-    .modal-buttons { display: flex; justify-content: flex-end; gap: 10px; margin-top: 20px; }
+    .modal-buttons { display: flex; justify-content: flex-end; gap: 10px; margin-top: 20px; align-items: center; }
     .modal button { padding: 10px 20px; border-radius: 6px; border: none; cursor: pointer; font-weight: bold; }
     .btn-primary { background: #1a73e8; color: #fff; }
     .btn-secondary { background: #eee; color: #333; }
@@ -541,7 +541,6 @@
   <div class="modal-overlay" id="helpModal">
     <div class="modal">
       <h3 style="display: flex; align-items: center; gap: 8px;">
-        <span class="material-symbols-outlined" onclick="openContactDialog()" style="cursor: pointer; color: #1a73e8; font-size: 24px;" title="Contact Support">mail</span>
         <span>Puter Unofficial Help</span>
       </h3>
       <p>• <b>Text Chat:</b> Type your message and hit send.</p>
@@ -551,6 +550,7 @@
       <p>• <b>Voice Agent:</b> Tap the sparkles for a full-screen, hands-free conversation mode.</p>
       <p>• <b>Sign In:</b> Login to Puter to enable specialized models and persistent memory.</p>
       <div class="modal-buttons">
+        <span class="material-symbols-outlined" onclick="openContactDialog()" style="cursor: pointer; color: #1a73e8; font-size: 24px; margin-right: auto; display: flex; align-items: center;" title="Contact Support">mail</span>
         <button class="btn-secondary" onclick="closeModal('helpModal')">Close</button>
       </div>
     </div>
@@ -3241,6 +3241,32 @@
                             const div = document.createElement('div');
                             div.className = "message bot-message";
                             div.id = msgId;
+
+                            let pressTimer;
+                            let startX, startY;
+                            div.onpointerdown = (e) => { 
+                                if (pressTimer) clearTimeout(pressTimer);
+                                startX = e.clientX;
+                                startY = e.clientY;
+                                pressTimer = window.setTimeout(() => { 
+                                    const currentText = document.getElementById(`live-span-${msgId}`)?.innerText || "";
+                                    showContextMenu(e, currentText, msgId); 
+                                }, 700); 
+                            };
+                            div.onpointermove = (e) => {
+                                if (pressTimer && Math.hypot(e.clientX - startX, e.clientY - startY) > 8) {
+                                    clearTimeout(pressTimer);
+                                    pressTimer = null;
+                                }
+                            };
+                            div.onpointerup = () => {
+                                if (pressTimer) { clearTimeout(pressTimer); pressTimer = null; }
+                            };
+                            div.onpointercancel = () => {
+                                if (pressTimer) { clearTimeout(pressTimer); pressTimer = null; }
+                            };
+                            div.oncontextmenu = (e) => e.preventDefault();
+
                             div.innerHTML = `<div class="message-content"><b>Bot:</b><br><span id="live-span-${msgId}"></span></div>`;
                             log.appendChild(div);
                             currentLiveBotSpan = document.getElementById(`live-span-${msgId}`);
@@ -3277,6 +3303,32 @@
                             const div = document.createElement('div');
                             div.className = "message bot-message";
                             div.id = msgId;
+
+                            let pressTimer;
+                            let startX, startY;
+                            div.onpointerdown = (e) => { 
+                                if (pressTimer) clearTimeout(pressTimer);
+                                startX = e.clientX;
+                                startY = e.clientY;
+                                pressTimer = window.setTimeout(() => { 
+                                    const currentText = document.getElementById(`live-span-${msgId}`)?.innerText || "";
+                                    showContextMenu(e, currentText, msgId); 
+                                }, 700); 
+                            };
+                            div.onpointermove = (e) => {
+                                if (pressTimer && Math.hypot(e.clientX - startX, e.clientY - startY) > 8) {
+                                    clearTimeout(pressTimer);
+                                    pressTimer = null;
+                                }
+                            };
+                            div.onpointerup = () => {
+                                if (pressTimer) { clearTimeout(pressTimer); pressTimer = null; }
+                            };
+                            div.onpointercancel = () => {
+                                if (pressTimer) { clearTimeout(pressTimer); pressTimer = null; }
+                            };
+                            div.oncontextmenu = (e) => e.preventDefault();
+
                             div.innerHTML = `<div class="message-content"><b>Bot:</b><br><span id="live-span-${msgId}"></span></div>`;
                             log.appendChild(div);
                             currentLiveBotSpan = document.getElementById(`live-span-${msgId}`);
@@ -3303,6 +3355,32 @@
                             const div = document.createElement('div');
                             div.className = "message user-message";
                             div.id = msgId;
+
+                            let pressTimer;
+                            let startX, startY;
+                            div.onpointerdown = (e) => { 
+                                if (pressTimer) clearTimeout(pressTimer);
+                                startX = e.clientX;
+                                startY = e.clientY;
+                                pressTimer = window.setTimeout(() => { 
+                                    const currentText = document.getElementById(`live-user-span-${msgId}`)?.innerText || "";
+                                    showContextMenu(e, currentText, msgId); 
+                                }, 700); 
+                            };
+                            div.onpointermove = (e) => {
+                                if (pressTimer && Math.hypot(e.clientX - startX, e.clientY - startY) > 8) {
+                                    clearTimeout(pressTimer);
+                                    pressTimer = null;
+                                }
+                            };
+                            div.onpointerup = () => {
+                                if (pressTimer) { clearTimeout(pressTimer); pressTimer = null; }
+                            };
+                            div.onpointercancel = () => {
+                                if (pressTimer) { clearTimeout(pressTimer); pressTimer = null; }
+                            };
+                            div.oncontextmenu = (e) => e.preventDefault();
+
                             div.innerHTML = `<div class="message-content"><b>User:</b><br><span id="live-user-span-${msgId}"></span></div>`;
                             log.appendChild(div);
                             currentLiveUserSpan = document.getElementById(`live-user-span-${msgId}`);
@@ -3814,4 +3892,3 @@
   </script>
 </body>
 </html>
-
