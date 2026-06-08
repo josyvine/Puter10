@@ -369,6 +369,7 @@
       <li onclick="openModal('helpModal')">Help</li>
 
       <li onclick="window.AndroidInterface.loadLocalUrl('browser.html')">Browse Website</li>
+      <li onclick="window.AndroidInterface.loadLocalUrl('bot.html')">Traders Zone</li>
 
       <!-- =========================================================================
        * OPEN-TEXT REPLY LANGUAGE CONFIGURATION PANEL
@@ -812,6 +813,7 @@
         el.classList.toggle('open');
     }
 
+    // UPDATED: Traders Zone is integrated below, so let's preserve the selectModel configuration
     function selectModel(id, name, modelObj = null) {
         globalSelectedModel = id;
         globalModelObject = modelObj;
@@ -2204,7 +2206,7 @@
             updateLoaderCardText(loaderId, "AI is synthesizing web findings...");
 
             if (window.AndroidInterface) {
-                window.AndroidInterface.nativeLog("Delivering grounding grounding payload to Puter completions pipeline. Model: " + activeModel, "native");
+                window.AndroidInterface.logDiagnostic("Delivering grounding grounding payload to Puter completions pipeline. Model: " + activeModel, "native");
             }
 
             const streamResp = await puter.ai.chat(messagesArray, {
@@ -3892,3 +3894,4 @@
   </script>
 </body>
 </html>
+
