@@ -599,6 +599,8 @@ public class WebAppInterface {
         final String targetUrl;
         if ("browser.html".equals(pageName)) {
             targetUrl = AppConstants.LOCAL_BROWSER_URL;
+        } else if ("bot.html".equals(pageName)) {
+            targetUrl = AppConstants.LOCAL_BOT_URL;
         } else {
             targetUrl = AppConstants.LOCAL_INDEX_URL;
         }
