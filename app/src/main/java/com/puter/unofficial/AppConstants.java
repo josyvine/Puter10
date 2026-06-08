@@ -58,6 +58,9 @@ public class AppConstants {
     // inside the app WebView.
     public static final String LOCAL_BROWSER_URL = "https://appassets.androidplatform.net/assets/browser.html";
 
+    // NEW: Local asset path for the Traders Zone trading bot dashboard.
+    public static final String LOCAL_BOT_URL = "https://appassets.androidplatform.net/assets/bot.html";
+
     // Markers for detecting successful SDK authentication redirects
     public static final String AUTH_SUCCESS_MARKER = "signed_in=true";
     public static final String AUTH_TOKEN_PARAM = "token=";
