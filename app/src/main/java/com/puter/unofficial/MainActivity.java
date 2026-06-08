@@ -378,7 +378,7 @@ public class MainActivity extends AppCompatActivity implements TextToSpeech.OnIn
             // Trigger native Toast message feedback
             Toast.makeText(MainActivity.this, "JSON sent successfully to Puter Unofficial", Toast.LENGTH_LONG).show();
 
-            // Smoothly revert back to original Blue state after 4 seconds
+            // Smoothly return back to original Blue state after 4 seconds
             scrapeHandler.postDelayed(() -> {
                 fabScrape.setBackgroundTintList(ColorStateList.valueOf(Color.parseColor("#1A73E8")));
             }, 4000);
@@ -596,6 +596,11 @@ public class MainActivity extends AppCompatActivity implements TextToSpeech.OnIn
                 } 
                 // If inside local sub-panels (like browser.html receiver)
                 else if (currentUrl.contains("browser.html")) {
+                    webView.loadUrl("https://appassets.androidplatform.net/assets/index.html");
+                    return;
+                }
+                // NEW ROUTE: Swipe-to-Exit or Back-to-Exit for bot.html (Traders Zone)
+                else if (currentUrl.contains("bot.html")) {
                     webView.loadUrl("https://appassets.androidplatform.net/assets/index.html");
                     return;
                 }
