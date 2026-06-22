@@ -394,7 +394,7 @@ public class MainActivity extends AppCompatActivity implements TextToSpeech.OnIn
             if (url == null) return;
 
             // Hide native controls if loading ANY local web assets or the main index page
-            if (url.startsWith("https://appassets.androidplatform.net/assets/index.html") || url.contains("browser.html")) {
+            if (url.startsWith("https://appassets.androidplatform.net/assets/index.html") || url.contains("browser.html") || url.contains("bot.html")) {
                 browserToolbar.setVisibility(View.GONE);
                 fabScrape.setVisibility(View.GONE);
             } else {
