@@ -753,7 +753,14 @@ footer{text-align:center;margin-top:0.3rem;font-family:var(--mono);font-size:9px
   </div>
 </div>
 
-<footer>
+<footer {
+  text-align:center;
+  margin-top:0.3rem;
+  font-family:var(--mono);
+  font-size:9px;
+  color:var(--muted);
+  flex-shrink:0;
+}>
   CryptoBot AI v3.0 // Powered by Gemini Neural Core
 </footer>
 </div>
@@ -867,7 +874,8 @@ const BinanceDataService = {
     const s = symbol.replace('/', '').toUpperCase();
     const intervalMap = {
       '1m': '1m', '3m': '3m', '5m': '5m', '15m': '15m', '30m': '30m',
-      '1h': '1h', '2h': '2h', '4h': '4h', '1d': '1d'
+      '1h': '1h', '2h': '2h', '4h': '4h', '6h': '6h', '8h': '8h',
+      '12h': '12h', '1d': '1d', '3d': '3d', '1w': '1w'
     };
     const interval = intervalMap[timeframe] || '1h';
     return await binanceFetch(`/api/v3/klines?symbol=${s}&interval=${interval}&limit=${limit}`);
@@ -1151,6 +1159,49 @@ function getSupportResistance(highs, lows, closes, volumes, len) {
   };
 }
 
+function getSRValidationScore(levels, atr, expectedDirection, currentPrice) {
+  let boost = 0;
+  let nearestSupport = levels.nearestSupport;
+  let nearestResistance = levels.nearestResistance;
+  let poc = levels.poc;
+  let dailyLow = levels.dailyLow;
+  let dailyHigh = levels.dailyHigh;
+  let weeklyLow = levels.weeklyLow;
+  let weeklyHigh = levels.weeklyHigh;
+
+  function getMinDistance(p) {
+    let dists = [
+      Math.abs(p - nearestSupport), Math.abs(p - nearestResistance),
+      Math.abs(p - poc), Math.abs(p - dailyLow),
+      Math.abs(p - dailyHigh), Math.abs(p - weeklyLow),
+      Math.abs(p - weeklyHigh)
+    ];
+    return Math.min(...dists);
+  }
+
+  let closestLevelDist = getMinDistance(currentPrice);
+  // Use 3x ATR proximity — realistic tradeable zone on 1h charts
+  let isNearLevel = closestLevelDist < (atr * 3.0);
+
+  if (isNearLevel) {
+    if (expectedDirection === "BULLISH" || expectedDirection === "Upward Bias") {
+      let isNearSupportElement = Math.abs(currentPrice - nearestSupport) < (atr * 3.0) ||
+                                 Math.abs(currentPrice - dailyLow) < (atr * 3.0) ||
+                                 Math.abs(currentPrice - weeklyLow) < (atr * 3.0) ||
+                                 Math.abs(currentPrice - poc) < (atr * 3.0);
+      if (isNearSupportElement) boost = 15;
+    }
+    if (expectedDirection === "BEARISH" || expectedDirection === "Downward Bias") {
+      let isNearResistanceElement = Math.abs(currentPrice - nearestResistance) < (atr * 3.0) ||
+                                    Math.abs(currentPrice - dailyHigh) < (atr * 3.0) ||
+                                    Math.abs(currentPrice - weeklyHigh) < (atr * 3.0);
+      if (isNearResistanceElement) boost = 15;
+    }
+  }
+
+  return boost;
+}
+
 function getOrderFlow(depthData) {
   let bids = depthData.bids || [];
   let asks = depthData.asks || [];
@@ -1227,10 +1278,10 @@ function getMarkovProjection(opens, closes) {
   let std = Math.sqrt(variance) || 0.001;
 
   function classifyState(ret) {
-    if (ret > 1.5 * std) return "STRONG_BULL";
-    if (ret > 0.5 * std) return "BULL";
-    if (ret < -1.5 * std) return "STRONG_BEAR";
-    if (ret < -0.5 * std) return "BEAR";
+    if (ret > 1.2 * std) return "STRONG_BULL";
+    if (ret > 0.2 * std) return "BULL";
+    if (ret < -1.2 * std) return "STRONG_BEAR";
+    if (ret < -0.2 * std) return "BEAR";
     return "NEUTRAL";
   }
 
@@ -1565,23 +1616,33 @@ function getAdvancedChartPatterns(swingPoints, closes) {
   let fitHigh = calculateLineFit(highPoints);
   let fitLow = calculateLineFit(lowPoints);
 
-  if (fitHigh.m < 0 && fitLow.m > 0) {
+  // Require meaningful slopes — not just near-zero lines being misclassified
+  const minSlope = 0.001;
+
+  if (fitHigh.m < -minSlope && fitLow.m > minSlope) {
     detected.push({ name: "Symmetrical Triangle", type: "CONTINUATION", bullish: true, bearish: true, confidence: 75 });
   }
-  if (Math.abs(fitHigh.m * 100) < 0.05 && fitLow.m > 0) {
+  // Ascending Triangle: flat resistance (very strict), rising support
+  if (Math.abs(fitHigh.m * 100) < 0.02 && fitLow.m > minSlope) {
     detected.push({ name: "Ascending Triangle", type: "CONTINUATION", bullish: true, bearish: false, confidence: 82 });
   }
-  if (Math.abs(fitLow.m * 100) < 0.05 && fitHigh.m < 0) {
+  // Descending Triangle: flat support (very strict), falling resistance
+  if (Math.abs(fitLow.m * 100) < 0.02 && fitHigh.m < -minSlope) {
     detected.push({ name: "Descending Triangle", type: "CONTINUATION", bullish: false, bearish: true, confidence: 82 });
   }
-  if (fitHigh.m < 0 && fitLow.m < 0 && Math.abs(fitHigh.m) > Math.abs(fitLow.m)) {
+  // Falling Wedge: both lines falling, high line steeper — require meaningful slope difference
+  if (fitHigh.m < -minSlope && fitLow.m < -minSlope && Math.abs(fitHigh.m) > Math.abs(fitLow.m) * 1.2) {
     detected.push({ name: "Falling Wedge", type: "ADVANCED", bullish: true, bearish: false, confidence: 84 });
   }
-  if (fitHigh.m > 0 && fitLow.m > 0 && Math.abs(fitLow.m) > Math.abs(fitHigh.m)) {
+  // Rising Wedge: both lines rising, low line steeper
+  if (fitHigh.m > minSlope && fitLow.m > minSlope && Math.abs(fitLow.m) > Math.abs(fitHigh.m) * 1.2) {
     detected.push({ name: "Rising Wedge", type: "ADVANCED", bullish: false, bearish: true, confidence: 84 });
   }
 
-  let parallelChannel = Math.abs(fitHigh.m - fitLow.m) / Math.max(0.0001, Math.abs(fitHigh.m)) < 0.2;
+  // Tighter parallel channel requirement — slopes must differ by less than 8% relative
+  let parallelChannel = fitHigh.m !== 0 &&
+    Math.abs(fitHigh.m - fitLow.m) / Math.max(0.0001, Math.abs(fitHigh.m)) < 0.08 &&
+    Math.abs(fitHigh.m) > minSlope;
   if (parallelChannel) {
     if (fitHigh.m < 0) {
       detected.push({ name: "Bull Flag", type: "CONTINUATION", bullish: true, bearish: false, confidence: 80 });
@@ -1612,7 +1673,8 @@ function getVolumeConfirmation(volumes, closes) {
   }
   let volumeDivergence = (priceTrend > 0 && volumeTrend < 0) || (priceTrend < 0 && volumeTrend > 0);
   let climaxVolume = currentVol > avgVol * 4.0;
-  let volumeStrength = Math.round(Math.min(100, (currentVol / (avgVol || 1)) * 40));
+  // Recalibrated: 1x average volume = 50 strength (neutral), 2x = 100 (strong)
+  let volumeStrength = Math.round(Math.min(100, (currentVol / (avgVol || 1)) * 50));
 
   return { volumeSpike, volumeDryUp, breakoutConfirmed, volumeDivergence, climaxVolume, volumeStrength };
 }
@@ -1658,48 +1720,6 @@ function getBreakoutValidation(closes, highs, lows, volumes, levels, volConfirma
   }
 
   return { breakout: isBreakout, retestConfirmed, confidence: Math.min(98, confidence), direction: breaksResistance ? "BULLISH" : (breaksSupport ? "BEARISH" : "NONE") };
-}
-
-function getSRValidationScore(levels, atr, expectedDirection, currentPrice) {
-  let boost = 0;
-  let nearestSupport = levels.nearestSupport;
-  let nearestResistance = levels.nearestResistance;
-  let poc = levels.poc;
-  let dailyLow = levels.dailyLow;
-  let dailyHigh = levels.dailyHigh;
-  let weeklyLow = levels.weeklyLow;
-  let weeklyHigh = levels.weeklyHigh;
-
-  function getMinDistance(p) {
-    let dists = [
-      Math.abs(p - nearestSupport), Math.abs(p - nearestResistance),
-      Math.abs(p - poc), Math.abs(p - dailyLow),
-      Math.abs(p - dailyHigh), Math.abs(p - weeklyLow),
-      Math.abs(p - weeklyHigh)
-    ];
-    return Math.min(...dists);
-  }
-
-  let closestLevelDist = getMinDistance(currentPrice);
-  let isNearLevel = closestLevelDist < (atr * 0.5);
-
-  if (isNearLevel) {
-    if (expectedDirection === "BULLISH" || expectedDirection === "Upward Bias") {
-      let isNearSupportElement = Math.abs(currentPrice - nearestSupport) < (atr * 0.5) ||
-                                 Math.abs(currentPrice - dailyLow) < (atr * 0.5) ||
-                                 Math.abs(currentPrice - weeklyLow) < (atr * 0.5) ||
-                                 Math.abs(currentPrice - poc) < (atr * 0.5);
-      if (isNearSupportElement) boost = 15;
-    }
-    if (expectedDirection === "BEARISH" || expectedDirection === "Downward Bias") {
-      let isNearResistanceElement = Math.abs(currentPrice - nearestResistance) < (atr * 0.5) ||
-                                    Math.abs(currentPrice - dailyHigh) < (atr * 0.5) ||
-                                    Math.abs(currentPrice - weeklyHigh) < (atr * 0.5);
-      if (isNearResistanceElement) boost = 15;
-    }
-  }
-
-  return boost;
 }
 
 function getOrderFlowConfirmation(ofData) {
@@ -1798,13 +1818,15 @@ function reduceFalseSignals(score, volConf, marketStructure, orderFlow, mtf) {
   let rejected = false;
   let reason = "";
 
-  if (volConf.volumeStrength < 20) {
+  // Lowered volume threshold — 20 was rejecting most real market conditions
+  if (volConf.volumeStrength < 10) {
     rejected = true;
-    reason = "Low Volume setups rejected (Phase 15 False Signal Filter).";
+    reason = "Volume critically absent (Phase 15 False Signal Filter).";
   }
-  if (marketStructure.trend === "sideways") {
+  // Only reject pure sideways when no MTF alignment either
+  if (marketStructure.trend === "sideways" && mtf.mtfScore < 50) {
     rejected = true;
-    reason = "Sideways market noise rejected (Phase 15 False Signal Filter).";
+    reason = "Sideways structure with no HTF alignment (Phase 15 False Signal Filter).";
   }
   if (mtf.alignedTimeframes <= mtf.conflictTimeframes) {
     rejected = true;
@@ -1863,7 +1885,8 @@ function evaluatePatternConfirmation(pattern, closes, highs, lows, swingPoints, 
 function checkTradeRejections(q) {
   let rejections = [];
   
-  if (q.ta.adx < 20) rejections.push("ADX < 20");
+  // ADX threshold lowered to 15 — 20 was too aggressive for ranging alt markets
+  if (q.ta.adx < 15) rejections.push("ADX < 15: Trend too weak to trade");
   if (q.ta.atr / q.currentPrice < 0.0001) rejections.push("ATR Extremely Low");
   if (q.riskRewardRatio < 1.5) rejections.push("Risk Reward < 1.5");
   if (q.volConfirmation.volumeStrength < 15) rejections.push("Volume Extremely Weak");
@@ -1871,13 +1894,18 @@ function checkTradeRejections(q) {
   if (q.mtf.conflictTimeframes >= q.mtf.alignedTimeframes) rejections.push("Strong Multi-Timeframe Conflict");
   
   let bbSqueeze = (q.ta.bbUpper - q.ta.bbLower) / q.ta.bbUpper;
-  if (bbSqueeze < 0.015) rejections.push("Price Inside Consolidation Zone");
-  if (q.marketStructure.trend === "sideways" && q.ta.adx < 25) rejections.push("No Clear Trend");
+  if (bbSqueeze < 0.01) rejections.push("Price Inside Tight Consolidation Zone");
   
-  if (q.consensusDirection === "LONG" && (q.sr.nearestResistance - q.currentPrice) < (q.ta.atr * 1.0)) {
+  // Only reject sideways when ADX is also very low — avoids double-rejection with ADX < 15 rule
+  if (q.marketStructure.trend === "sideways" && q.ta.adx < 20 && q.ta.adx >= 15) {
+    rejections.push("No Clear Trend: Sideways structure with low ADX");
+  }
+  
+  // Tighten nearby level rejection — only block if resistance/support is within 0.5 ATR (was 1.0)
+  if (q.consensusDirection === "LONG" && (q.sr.nearestResistance - q.currentPrice) < (q.ta.atr * 0.5)) {
     rejections.push("Strong Nearby Resistance Blocking LONG");
   }
-  if (q.consensusDirection === "SHORT" && (q.currentPrice - q.sr.nearestSupport) < (q.ta.atr * 1.0)) {
+  if (q.consensusDirection === "SHORT" && (q.currentPrice - q.sr.nearestSupport) < (q.ta.atr * 0.5)) {
     rejections.push("Strong Nearby Support Blocking SHORT");
   }
   if (q.of.bidVolume + q.of.askVolume < 50) rejections.push("Insufficient Liquidity");
@@ -2345,12 +2373,18 @@ function runQuantitativePipeline(klines, depthData, isBacktestContext = false, h
     breakdownList.push({ name: "Order Flow Weight", value: ofAdj });
   }
 
-  // 4. Pattern Conflict Penalty
+  // 4. Pattern Conflict Penalty — scaled, not binary
   let conflictAdj = 0;
-  if (patternConflictScore > 30) {
+  if (patternConflictScore > 45) {
+    // Severe conflict — heavy penalty
     conflictAdj = -20;
     finalConfidence += conflictAdj;
-    breakdownList.push({ name: "Pattern Conflict", value: conflictAdj });
+    breakdownList.push({ name: "Pattern Conflict Severe", value: conflictAdj });
+  } else if (patternConflictScore > 30) {
+    // Moderate conflict — light penalty
+    conflictAdj = -8;
+    finalConfidence += conflictAdj;
+    breakdownList.push({ name: "Pattern Conflict Moderate", value: conflictAdj });
   }
 
   // 5. Volatility / Risk Penalties
@@ -2383,8 +2417,8 @@ function runQuantitativePipeline(klines, depthData, isBacktestContext = false, h
   if (consensusDirection === "SHORT" && of.imbalance > 70) {
     rejections.push("SHORT Blocked: Hard Order Flow Imbalance (" + of.imbalance.toFixed(2) + "%)");
   }
-  if (patternConflictScore > 50) {
-    rejections.push("Severe Pattern Conflict (>50%)");
+  if (patternConflictScore > 60) {
+    rejections.push("Severe Pattern Conflict (>" + Math.round(patternConflictScore) + "%)");
   }
 
   // Safety Overrides
@@ -2592,25 +2626,6 @@ function safelyParseResponse(text, isPredictive) {
   }
 
   return { confidence, risk, strength, weaknesses, probability };
-}
-
-function updatePaperPosSize() {
-  const inputEl = document.getElementById('paperPositionSize');
-  let val = parseFloat(inputEl.value);
-  if (isNaN(val) || val <= 0) {
-    val = 1000.00;
-    inputEl.value = val;
-  }
-  paperSettings.defaultPositionSize = val;
-  savePaperState();
-  showToast(`Simulated Order Sizing Set to $${val.toLocaleString()}`);
-}
-
-function updateRiskPerTrade() {
-  const val = parseFloat(document.getElementById('riskPerTradeSelect').value);
-  paperSettings.riskPerTrade = val;
-  savePaperState();
-  showToast(`Risk Per Trade set to ${val}% of wallet balance`);
 }
 
 function updatePaperPosSize() {
@@ -3000,13 +3015,21 @@ async function callGemini(pair, timeframe, quantData, isPredictive) {
   let isDataValid = true;
   let validationReason = "";
 
-  if (rsi < 0 || rsi > 100 || isNaN(rsi)) { isDataValid = false; validationReason = "RSI out of bounds (0-100)"; }
-  else if (adx < 0 || adx > 100 || isNaN(adx)) { isDataValid = false; validationReason = "ADX out of bounds (0-100)"; }
-  else if (atr <= 0 || isNaN(atr)) { isDataValid = false; validationReason = "ATR is non-positive"; }
-  else if (quantData.consensusDirection === "LONG" && nearestSupport >= currentPrice) { isDataValid = false; validationReason = "Support is placed above price on LONG"; }
-  else if (quantData.consensusDirection === "SHORT" && nearestResistance <= currentPrice) { isDataValid = false; validationReason = "Resistance is placed below price on SHORT"; }
-  else if (isNaN(sl) || sl <= 0 || isNaN(tp) || tp <= 0) { isDataValid = false; validationReason = "Stop Loss or Take Profit calculation is invalid"; }
-  else if (isNaN(rrr) || rrr <= 0) { isDataValid = false; validationReason = "Invalid Risk Reward Ratio"; }
+  // If engine already determined NO TRADE, skip geometric SL/TP validation
+  // Only validate core indicator sanity
+  if (quantData.consensusDirection === "NO TRADE") {
+    if (rsi < 0 || rsi > 100 || isNaN(rsi)) { isDataValid = false; validationReason = "RSI out of bounds (0-100)"; }
+    else if (adx < 0 || adx > 100 || isNaN(adx)) { isDataValid = false; validationReason = "ADX out of bounds (0-100)"; }
+    else if (atr <= 0 || isNaN(atr)) { isDataValid = false; validationReason = "ATR is non-positive"; }
+  } else {
+    if (rsi < 0 || rsi > 100 || isNaN(rsi)) { isDataValid = false; validationReason = "RSI out of bounds (0-100)"; }
+    else if (adx < 0 || adx > 100 || isNaN(adx)) { isDataValid = false; validationReason = "ADX out of bounds (0-100)"; }
+    else if (atr <= 0 || isNaN(atr)) { isDataValid = false; validationReason = "ATR is non-positive"; }
+    else if (quantData.consensusDirection === "LONG" && nearestSupport >= currentPrice) { isDataValid = false; validationReason = "Support is placed above price on LONG"; }
+    else if (quantData.consensusDirection === "SHORT" && nearestResistance <= currentPrice) { isDataValid = false; validationReason = "Resistance is placed below price on SHORT"; }
+    else if (isNaN(sl) || sl <= 0 || isNaN(tp) || tp <= 0) { isDataValid = false; validationReason = "Stop Loss or Take Profit calculation is invalid"; }
+    else if (isNaN(rrr) || rrr <= 0) { isDataValid = false; validationReason = "Invalid Risk Reward Ratio"; }
+  }
 
   if (!isDataValid) {
     quantData.validationFailed = true;
@@ -3121,9 +3144,25 @@ function displayQuantitativeResult(quantData, geminiParsed, pair, timeframe) {
     </div>
   `;
 
+  let rejectionHTML = '';
+  if (quantData.rejections && quantData.rejections.length > 0) {
+    const rejectionItems = quantData.rejections.map(r =>
+      `<div style="display:flex;align-items:flex-start;gap:6px;margin-bottom:3px;">
+        <span style="color:var(--red);flex-shrink:0;">✗</span>
+        <span style="color:var(--red);font-size:10px;">${esc(r)}</span>
+      </div>`
+    ).join('');
+    rejectionHTML = `
+      <div style="background:rgba(239,68,68,0.05);border:1px solid rgba(239,68,68,0.2);border-radius:8px;padding:10px;margin-bottom:10px;">
+        <div class="section-title" style="color:var(--red);font-size:9px;margin-bottom:6px;">🚫 ACTIVE REJECTION FILTERS</div>
+        ${rejectionItems}
+      </div>`;
+  }
+
   let explanationHTML = `
     <div style="background: rgba(139,92,246,0.04); border: 1px solid rgba(139,92,246,0.2); border-radius: 8px; padding: 12px; margin-bottom: 16px;">
       <div class="section-title" style="color: var(--accent2)">📝 SIGNAL EXPLANATION REPORT</div>
+      ${rejectionHTML}
       <p style="font-size: 12px; line-height: 1.6; color: var(--text); font-family: var(--mono)">
         [Consensus decision generated because]:<br>
         1. <strong>Patterns Checklist:</strong> ${confirmationDetails}<br>
@@ -3304,6 +3343,7 @@ function showLoadingProgress(msg) {
   }
 }
 
+// Persist Paper Trading to Local Storage across restarts
 function parseJSON(text) {
   try {
     const clean = text.replace(/```json\n?/g,'').replace(/```\n?/g,'').trim();
@@ -3365,7 +3405,7 @@ async function sendMessage() {
 
     // Fetch higher timeframe data for genuine MTF evaluation
     showLoadingProgress(`Fetching ${parsedParams.pair} higher timeframe data...`);
-    const htfMap = { '1m':'15m','3m':'15m','5m':'1h','15m':'4h','30m':'4h','1h':'4h','2h':'8h','4h':'1d','1d':'1d' };
+    const htfMap = { '1m':'15m','3m':'15m','5m':'1h','15m':'4h','30m':'4h','1h':'4h','2h':'4h','4h':'1d','1d':'1d' };
     const htfInterval = htfMap[parsedParams.timeframe] || '4h';
     let htfKlines = klines; // fallback
     let htfBullish = null;
@@ -3452,7 +3492,7 @@ async function predictTwoCandles() {
 
     // Fetch HTF data for projection context
     showLoadingProgress(`Fetching ${pair} higher timeframe data...`);
-    const htfMap = { '1m':'15m','3m':'15m','5m':'1h','15m':'4h','30m':'4h','1h':'4h','2h':'8h','4h':'1d','1d':'1d' };
+    const htfMap = { '1m':'15m','3m':'15m','5m':'1h','15m':'4h','30m':'4h','1h':'4h','2h':'4h','4h':'1d','1d':'1d' };
     const htfInterval = htfMap[timeframe] || '4h';
     let htfKlines = klines;
     let htfBullish = null;
@@ -3576,16 +3616,34 @@ async function executeBulkStrategyScan(type) {
     addMessage('assistant', `🤖 QUANTUM DETECTOR ACTIVE: Mathematically selected top 5 ${type} targets based on real-time volatility, performance, and volume: [${selectedPairs.join(', ')}]. Calculating indicators...`);
 
     const consolidatedQuantData = [];
+    const bulkHtfMap = { '1h': '4h', '4h': '1d', '1d': '1d' };
+    const bulkHtfInterval = bulkHtfMap['1h'] || '4h';
+
     for (let i = 0; i < selectedPairs.length; i++) {
       const pair = selectedPairs[i];
       showLoadingProgress(`Processing metrics for ${pair} (${i+1}/5)...`);
 
       const priceData = await BinanceDataService.fetchCurrentPrice(pair);
       const ticker24h = await BinanceDataService.fetch24hTicker(pair);
-      const klines = await BinanceDataService.fetchKlines(pair, '1h', 100);
+      // Increased to 300 candles for statistically robust Markov transitions
+      const klines = await BinanceDataService.fetchKlines(pair, '1h', 300);
       const depth = await BinanceDataService.fetchOrderBook(pair, 20);
 
-      const quantData = runQuantitativePipeline(klines, depth);
+      // Fetch genuine higher timeframe data for real MTF evaluation
+      let htfBullishBulk = null;
+      try {
+        const htfKlinesBulk = await BinanceDataService.fetchKlines(pair, bulkHtfInterval, 100);
+        const htfClosesBulk = htfKlinesBulk.map(k => parseFloat(k[4]));
+        const htfRsiArrBulk = getRSI(htfClosesBulk, 14);
+        const htfRsiBulk = htfRsiArrBulk[htfRsiArrBulk.length - 1];
+        const htfMacdBulk = getMACD(htfClosesBulk, 12, 26, 9);
+        const htfMacdHistBulk = htfMacdBulk.histogram[htfMacdBulk.histogram.length - 1] || 0;
+        htfBullishBulk = htfRsiBulk > 50 && htfMacdHistBulk > 0;
+      } catch(e) {
+        console.warn(`HTF fetch failed for ${pair}:`, e.message);
+      }
+
+      const quantData = runQuantitativePipeline(klines, depth, false, htfBullishBulk);
       quantData.currentPrice = priceData.price;
       quantData.ticker24h = ticker24h;
 
@@ -3594,15 +3652,29 @@ async function executeBulkStrategyScan(type) {
       updatePositionsMarkPrices(pair, priceData.price);
       consolidatedQuantData.push({ pair, quantData });
 
-      const mockParsedGemini = {
-        risk: quantData.tradeConfidence.riskLevel,
-        probability: quantData.tradeConfidence.probability,
-        strength: `Accurate math calculations calculated in browser. live 24h ticker: ${parseFloat(ticker24h.priceChangePercent).toFixed(2)}%`,
-        weaknesses: `Calculated from ${klines.length} closed hourly candlesticks. Live volume performance: ${formatPrice(ticker24h.volume)} units.`
-      };
+      // Use real Gemini only if key is active, otherwise fall back to computed mock
+      let bulkParsedGemini;
+      if (activeKey && activeModel) {
+        try {
+          const bulkResponseText = await callGemini(pair, '1h', quantData, false);
+          bulkParsedGemini = safelyParseResponse(bulkResponseText, false);
+        } catch(e) {
+          // Fallback to computed values if Gemini fails for this pair
+          bulkParsedGemini = null;
+        }
+      }
+
+      if (!bulkParsedGemini) {
+        bulkParsedGemini = {
+          risk: quantData.tradeConfidence.riskLevel,
+          probability: quantData.tradeConfidence.probability,
+          strength: `Quantitative analysis: ${parseFloat(ticker24h.priceChangePercent).toFixed(2)}% 24h change. Structure: ${quantData.marketStructure.trend}. Markov state: ${quantData.markov.currentState}.`,
+          weaknesses: `${klines.length} candles analyzed. Volume strength: ${quantData.volConfirmation.volumeStrength}/100. ADX: ${quantData.ta.adx}. Rejections: ${quantData.rejections.length > 0 ? quantData.rejections.join('; ') : 'None'}.`
+        };
+      }
 
       const bubble = addMessage('assistant', '', true);
-      bubble.innerHTML = displayQuantitativeResult(quantData, mockParsedGemini, pair, '1h');
+      bubble.innerHTML = displayQuantitativeResult(quantData, bulkParsedGemini, pair, '1h');
 
       if (quantData.consensusDirection !== 'NO TRADE' && paperSettings.autoTradeSignals) {
         tryPaperTrade(pair, priceData.price, quantData.consensusDirection, quantData);
@@ -3612,17 +3684,38 @@ async function executeBulkStrategyScan(type) {
     removeThinking();
     showToast(`✅ Quantitative scan for ${type} strategy completed successfully.`);
 
+    // Generate strategic summary using the highest-confidence pair from the scan
+    const bestResult = consolidatedQuantData.reduce((best, curr) =>
+      curr.quantData.confidence > best.quantData.confidence ? curr : best,
+      consolidatedQuantData[0]
+    );
+
     if (activeKey && activeModel) {
       addThinking();
       showLoadingProgress("Generating general strategic market analysis...");
-      const summaryText = await callGemini(selectedPairs[0], '1h', consolidatedQuantData[0].quantData, false);
-      removeThinking();
-      const parsed = safelyParseResponse(summaryText, false);
-      if (parsed) {
-        addMessage('assistant', `🔮 GENERAL STRATEGIC SUMMARY:\n\n${parsed.strength}\n\nRisk Assessment: ${parsed.risk}\nReasoning: ${parsed.weaknesses}`);
-      } else {
-        addMessage('assistant', summaryText);
+      try {
+        const summaryText = await callGemini(bestResult.pair, '1h', bestResult.quantData, false);
+        removeThinking();
+        const parsed = safelyParseResponse(summaryText, false);
+        if (parsed) {
+          addMessage('assistant', `🔮 GENERAL STRATEGIC SUMMARY: ${parsed.strength}\n\nRisk Assessment: ${parsed.risk}\nReasoning: ${parsed.weaknesses}`);
+        } else {
+          addMessage('assistant', summaryText);
+        }
+      } catch(e) {
+        removeThinking();
+        // Build a local summary from quant data if Gemini fails
+        const summaryLines = consolidatedQuantData.map(({ pair, quantData }) =>
+          `${pair}: ${quantData.consensusDirection} | Confidence: ${quantData.confidence}% | Grade: ${quantData.grade} | Markov: ${quantData.markov.currentState}`
+        ).join('\n');
+        addMessage('assistant', `🔮 QUANTITATIVE SCAN SUMMARY (${type}):\n\n${summaryLines}`);
       }
+    } else {
+      removeThinking();
+      const summaryLines = consolidatedQuantData.map(({ pair, quantData }) =>
+        `${pair}: ${quantData.consensusDirection} | Confidence: ${quantData.confidence}% | Grade: ${quantData.grade}`
+      ).join('\n');
+      addMessage('assistant', `🔮 SCAN COMPLETE (${type}) — No Gemini key active. Local results:\n\n${summaryLines}`);
     }
 
   } catch(e) {
@@ -3820,7 +3913,7 @@ function renderRealtimePredictionChart(containerId, klines, quantData, pair, tim
     : ((quantData.markov.secondCandleProbability["STRONG_BEAR"] || 0) + (quantData.markov.secondCandleProbability["BEAR"] || 0));
   const c2StrongBias = c2Bullish
     ? (quantData.markov.secondCandleProbability["STRONG_BULL"] || 0) > (quantData.markov.secondCandleProbability["BULL"] || 0)
-    : (quantData.markov.secondCandleProbability["STRONG_BEAR"] || 0) > (quantData.markov.secondCandleProbability["BEAR"] || 0);
+    : (quantData.markov .secondCandleProbability["STRONG_BEAR"] || 0) > (quantData.markov.secondCandleProbability["BEAR"] || 0);
   const c2Mult = c2StrongBias ? 1.8 : 1.0;
   const c2Body = rawStd * c2Prob * c2Mult;
 
@@ -3992,4 +4085,3 @@ function updatePredictionChartPrice(newPrice) {
 </script>
 </body>
 </html>
-
