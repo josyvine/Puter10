@@ -7,7 +7,7 @@
  */
 (function() {
     // 1. Create and Inject the Console Styles
-    const style = document.createElement('style');
+    const style = document.createElement('style'); 
     style.innerHTML = `
         #puter-debug-console {
             position: fixed;
