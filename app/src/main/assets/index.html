@@ -331,7 +331,6 @@
     .modal { background: #fff; padding: 25px; width: 90%; max-width: 500px; border-radius: 12px; box-shadow: 0 10px 25px rgba(0,0,0,0.3); max-height: 80vh; overflow-y: auto; }
     .modal h3 { margin-top: 0; margin-bottom: 15px; color: #333; border-bottom: 1px solid #eee; padding-bottom: 10px; }
     .modal-buttons { display: flex; justify-content: flex-end; gap: 10px; margin-top: 20px; align-items: center; }
-    .modal button { padding: 10px 20px; border-radius: 6px; border: none; cursor: pointer; font-weight: bold; }
     .btn-primary { background: #1a73e8; color: #fff; }
     .btn-secondary { background: #eee; color: #333; }
 
@@ -592,20 +591,6 @@
       <iframe id="previewIframe"></iframe>
   </div>
 
-  <!-- =========================================================================
-   * STARTUP terminal diagnostic modal
-   * ========================================================================= -->
-  <div class="modal-overlay" id="diagnosticModal" style="background: #121212;">
-    <div class="modal" style="background: #1e1e1e; color: #00ff00; font-family: monospace; border: 1px solid #00ff00; max-width: 600px; max-height: 85vh;">
-      <h3 style="color: #00ff00; border-bottom: 1px solid #00ff00; padding-bottom: 8px; margin-top:0;">Startup Hardware & Web Diagnostics</h3>
-      <div id="diagnosticTerminalLogs" style="background: #000; color: #00ff00; padding: 12px; border-radius: 4px; overflow-y: auto; height: 300px; font-size: 13px; white-space: pre-wrap; line-height: 1.4; border: 1px solid #00ff00; margin-bottom: 15px;"></div>
-      <div class="modal-buttons" style="gap: 12px;">
-        <button class="btn-primary" onclick="copyDiagnosticLogs()" style="background: #00ff00; color: #000; font-weight: bold; border-radius: 4px; border:none; cursor:pointer; padding:10px 20px;">Copy Logs</button>
-        <button class="btn-secondary" onclick="closeModal('diagnosticModal')" style="background: #222; color: #00ff00; font-weight: bold; border: 1px solid #00ff00; border-radius: 4px; cursor:pointer; padding:10px 20px;">Close</button>
-      </div>
-    </div>
-  </div>
-
   <script>
     /* --- CRYPTOGRAPHIC BECH32 DECODER & HEX TRANSLATION UTILITIES --- */
     const BECH32_ALPHABET = "qpzry9x8gf2tvdw0s3jn54khce6mua7l";
@@ -726,8 +711,6 @@
     let customInstruction = localStorage.getItem('puter_custom_ins') || "";
     let globalSelectedModel = ""; 
     let globalModelObject = null; 
-    let lastAuthStatus = null; 
-    let isLiveMode = false; 
 
     let isVoiceResponseActive = false;
 
@@ -813,7 +796,6 @@
         el.classList.toggle('open');
     }
 
-    // UPDATED: Traders Zone is integrated below, so let's preserve the selectModel configuration
     function selectModel(id, name, modelObj = null) {
         globalSelectedModel = id;
         globalModelObject = modelObj;
@@ -946,7 +928,7 @@
                     <div class="acc-header" onclick="toggleAcc('acc-cat')">By Category <span class="material-symbols-outlined" style="font-size:18px;">expand_more</span></div>
                     <div id="acc-cat" class="acc-content">`;
         categoriesSet.forEach(cat => {
-            let cId = 'cat-' + cat.replace(/[^a-zA-Z0-9]/g, '-');
+            let cId = 'cat-' + cat.replace(/[^a-zA-4-9]/g, '-');
             html += `<div class="acc-sub-header" onclick="toggleAcc('${cId}')">${cat.replace(/_/g, ' ').toUpperCase()} <span class="material-symbols-outlined" style="font-size:16px;">expand_more</span></div>
                      <div id="${cId}" class="acc-sub-content">`;
             allModels.filter(m => m.categories && m.categories.includes(cat)).forEach(m => {
@@ -1060,7 +1042,6 @@
         return String(content);
     }
 
-    /* --- TWO-TIER STT FALLBACK: MICROPHONE ICON --- */
     function triggerMic() {
         isVoiceResponseActive = true;
         if (window.AndroidInterface && window.AndroidInterface.setVoiceMode) {
@@ -1110,7 +1091,6 @@
     }
 
     function triggerVoiceAgent() {
-        // Toggle check: If the live connection is already active or connecting, disconnect it cleanly
         if (liveWs && (liveWs.readyState === WebSocket.OPEN || liveWs.readyState === WebSocket.CONNECTING)) {
             disconnectWebSocketLive();
             return;
@@ -1121,7 +1101,6 @@
             window.AndroidInterface.setVoiceMode(true);
         }
 
-        // Start multi-color blinking immediately when clicking the sparkle
         const icon = document.getElementById("voiceAgentIcon");
         if (icon) {
             icon.classList.add("sparkle-active");
@@ -1911,7 +1890,7 @@
     window.onSpeechFinished = () => {
         console.log("AI speech finished. Re-opening mic for continuous conversation.");
         if(isVoiceResponseActive && window.AndroidInterface) {
-            triggerMic();
+            window.AndroidInterface.startListening();
         }
     };
 
@@ -1926,7 +1905,7 @@
           name: fileName,
           type: mime,
           data: base64
-          });
+      });
 
       renderThumbnails();
       handleInput();
@@ -2094,8 +2073,8 @@
             chatHistory.push({sender: "Bot", text: fullBotText, id: `msg-${loaderId}`, files: []});
             localStorage.setItem('puter_chat_history_' + currentSessionId, JSON.stringify(chatHistory));
 
-            if (isVoiceResponseActive) {
-                executeSpeechSynthesisFallback(fullBotText);
+            if (isVoiceResponseActive && window.AndroidInterface) {
+                window.AndroidInterface.speak(fullBotText);
             }
         } catch (e) {
             console.error("index.html: Fallback completing cycle failed.", e);
@@ -2127,7 +2106,6 @@
                 });
             }
         } catch (e) {
-            console.error("index.html: RAG Context extraction error.", e);
             liveContextString = `[START OF LIVE WEB CONTEXT]\nScraped Content: ${rawScrapedJson}\n[END OF LIVE WEB CONTEXT]\n`;
         }
 
@@ -2158,9 +2136,8 @@
             }];
 
             const isAudioModel = modelId.includes("tts") || (globalModelObject && globalModelObject.categories && globalModelObject.categories.includes("audio"));
-            const isStreaming = window.AndroidInterface ? window.AndroidInterface.getGeminiStreaming() : true;
-            const supportsStreaming = !isAudioModel && !modelId.includes("live-preview") && isStreaming;
             const isDedicatedTts = modelId.includes("tts");
+            const supportsStreaming = !isAudioModel && !modelId.includes("live-preview") && isStreaming;
 
             const payload = { contents: contents };
 
@@ -2185,7 +2162,7 @@
                 }
             } catch (e) {
                 const targetSpan = document.getElementById(`stream-content-${msgId}`);
-                if (targetSpan) targetSpan.innerHTML = "RAG execution failed: " + e.message;
+                if (targetSpan) targetSpan.innerHTML = "RAG Synthesize error: " + e.message;
             }
             return;
         }
@@ -2206,7 +2183,7 @@
             updateLoaderCardText(loaderId, "AI is synthesizing web findings...");
 
             if (window.AndroidInterface) {
-                window.AndroidInterface.logDiagnostic("Delivering grounding grounding payload to Puter completions pipeline. Model: " + activeModel, "native");
+                window.AndroidInterface.logDiagnostic("Delivering grounding payload to Puter completions pipeline. Model: " + activeModel, "native");
             }
 
             const streamResp = await puter.ai.chat(messagesArray, {
@@ -2233,8 +2210,8 @@
             chatHistory.push({sender: "Bot", text: fullBotText, id: `msg-${loaderId}`, files: []});
             localStorage.setItem('puter_chat_history_' + currentSessionId, JSON.stringify(chatHistory));
 
-            if (isVoiceResponseActive) {
-                executeSpeechSynthesisFallback(fullBotText);
+            if (isVoiceResponseActive && window.AndroidInterface) {
+                window.AndroidInterface.speak(fullBotText);
             }
         } catch (completedError) {
             console.error("index.html: Grounding prompt execution failure.", completedError);
@@ -2257,7 +2234,7 @@
 
         appendChat("User", queryText, false, []);
 
-        const loaderId = Math.now ? Math.now() : Date.now() + "_" + Math.floor(Math.random() * 1000000);
+        const loaderId = Date.now() + "_" + Math.floor(Math.random() * 1000000);
         const log = document.getElementById('puterChatLog');
         const div = document.createElement('div');
         div.className = "message bot-message";
@@ -2834,7 +2811,9 @@
         window.scrollTo(0, document.body.scrollHeight);
 
         if (isVoiceResponseActive && !document.getElementById(msgId)?.querySelector(".message-content")?.dataset?.audioUrl) {
-            executeSpeechSynthesisFallback(finalBody);
+            if (window.AndroidInterface) {
+                window.AndroidInterface.speak(finalBody);
+            }
         }
     }
 
@@ -2882,6 +2861,150 @@
         textContainer.appendChild(ttsBtn);
     }
 
+    // Setup grounding XML block compiler
+    async function executeAutoModeRAG(queryText, rawScrapedJson, loaderId) {
+        if (window.AndroidInterface) {
+            window.AndroidInterface.nativeLog("Starting AutoMode RAG context extraction...", "native");
+        }
+        let liveContextString = "";
+        try {
+            const items = JSON.parse(rawScrapedJson);
+            if (Array.isArray(items)) {
+                const top2 = items.slice(0, 2);
+                top2.forEach(item => {
+                    const isUniversal = (item.type === "universal_web");
+                    const url = isUniversal ? (item.metadata?.url || "N/A") : `https://www.amazon.in/dp/${item.specifications?.asin || 'N/A'}`;
+                    const title = isUniversal ? (item.metadata?.title || "Universal Article") : `${item.specifications?.brand || ''} ${item.specifications?.model || ''}`;
+                    const contentText = isUniversal ? (item.content || "") : JSON.stringify(item.specifications);
+
+                    liveContextString += `[START OF LIVE WEB CONTEXT]\n`;
+                    liveContextString += `Source URL: ${url}\n`;
+                    liveContextString += `Page Title: ${title}\n`;
+                    liveContextString += `Scraped Content: ${contentText}\n`;
+                    liveContextString += `[END OF LIVE WEB CONTEXT]\n\n`;
+                });
+            }
+        } catch (e) {
+            liveContextString = `[START OF LIVE WEB CONTEXT]\nScraped Content: ${rawScrapedJson}\n[END OF LIVE WEB CONTEXT]\n`;
+        }
+
+        let systemPrompt = "You are an up-to-date, conversational AI assistant equipped with real-time web-crawling capabilities.\n";
+        systemPrompt += "You have been provided with fresh, crawled web documents matching the user's current query. You must prioritize this provided web data to construct your response.\n\n";
+
+        let groundingPrompt = systemPrompt + liveContextString;
+
+        groundingPrompt += "=== BEHAVIORAL AND FORMATTING CONSTRAINTS ===\n";
+        groundingPrompt += "- The \"No Technical Jargon\" Rule: You must NEVER mention technical or developmental terms under any circumstances, including but not limited to: \"raw JSON\", \"scraped databases\", \"API payloads\", \"web crawlers\", \"HTML tags\", \"Nostr events\", or \"relays\".\n";
+        groundingPrompt += "- The \"Natural Voice\" Rule: You must speak naturally, directly, and conversationally, as if you naturally possess this live, up-to-date knowledge.\n";
+        groundingPrompt += "- The \"Complete Answer Requirement\": You must construct a complete, detailed, and direct answer using the provided crawled web context. You must never output refusal phrases such as 'I could not find the answer', 'the context does not say', 'the data is missing', or 'I don't know'. Use the provided specifications and text to answer the query fully and directly.\n";
+
+        const targetLanguage = localStorage.getItem("puter_target_language") || "";
+        const nativeLanguage = getNativeLanguageName(targetLanguage);
+        if (targetLanguage) {
+            groundingPrompt += `- The Language Constraint:\n  IMPORTANT:\n  ALWAYS respond ONLY in ${nativeLanguage || targetLanguage}.\n  NEVER use English.\n  Even if user speaks English, translate internally and answer only in ${nativeLanguage || targetLanguage}.\n  Do not transliterate. Write strictly in the native script characters of the language.\n`;
+        }
+        groundingPrompt += "\n";
+
+        // --- PATHWAY ROUTING BRANCH: PUTER VS NATIVE GEMINI IN AUTO MODE ---
+        if (activeProvider === "Gemini") {
+            const modelId = globalSelectedModel;
+            const msgId = "gemini-" + Date.now() + "_" + Math.floor(Math.random() * 1000000);
+            
+            const contents = [{
+                role: "user",
+                parts: [{ text: `USER QUESTION: ${queryText}` }]
+            }];
+
+            const isAudioModel = modelId.includes("tts") || (globalModelObject && globalModelObject.categories && globalModelObject.categories.includes("audio"));
+            const isDedicatedTts = modelId.includes("tts");
+            const supportsStreaming = !isAudioModel && !modelId.includes("live-preview") && isStreaming;
+
+            const payload = { contents: contents };
+
+            if (!isDedicatedTts) {
+                payload.systemInstruction = { parts: [{ text: groundingPrompt }] };
+            } else {
+                contents[0].parts.unshift({ text: groundingPrompt });
+            }
+
+            const payloadJson = JSON.stringify(payload);
+
+            const loader = document.getElementById('ecgLoader');
+            if (loader) loader.style.display = 'none';
+
+            setupGeminiCallbacks(queryText, msgId, supportsStreaming);
+
+            try {
+                if (window.AndroidInterface && window.AndroidInterface.executeGeminiCall) {
+                    window.AndroidInterface.executeGeminiCall(modelId, payloadJson, supportsStreaming, msgId);
+                } else {
+                    throw new Error("Android Interface native bridge not available.");
+                }
+            } catch (e) {
+                const targetSpan = document.getElementById(`stream-content-${msgId}`);
+                if (targetSpan) targetSpan.innerHTML = "RAG Synthesize error: " + e.message;
+            }
+            return;
+        }
+
+        let finalUserQueryText = `USER QUESTION: ${queryText}`;
+        if (targetLanguage) {
+            const scriptName = nativeLanguage || targetLanguage;
+            finalUserQueryText += `\n\n[System Rule: Respond strictly in ${scriptName} script]`;
+        }
+
+        const messagesArray = [
+            { role: "system", content: groundingPrompt },
+            { role: "user", content: finalUserQueryText }
+        ];
+
+        const activeModel = globalSelectedModel;
+        try {
+            updateLoaderCardText(loaderId, "AI is synthesizing web findings...");
+
+            if (window.AndroidInterface) {
+                window.AndroidInterface.logDiagnostic("Delivering grounding payload to Puter completions pipeline. Model: " + activeModel, "native");
+            }
+
+            const streamResp = await puter.ai.chat(messagesArray, {
+                model: activeModel,
+                stream: true
+            });
+
+            const loaderTextEl = document.getElementById(`loader-indicator-text-${loaderId}`);
+            if (loaderTextEl) loaderTextEl.remove();
+
+            const targetSpan = document.getElementById(`stream-content-${loaderId}`);
+            let fullBotText = "";
+            for await (const chunk of streamResp) {
+                if (chunk.usage) { updateUsageUI(chunk.usage); continue; }
+                const chunkText = chunk?.text || chunk?.message?.content || "";
+                if (chunkText) {
+                    fullBotText += chunkText;
+                    targetSpan.innerHTML = marked.parse(fullBotText);
+                    document.querySelectorAll(`#stream-content-${loaderId} pre code:not(.hljs)`).forEach((block) => { hljs.highlightElement(block); });
+                    window.scrollTo(0, document.body.scrollHeight);
+                }
+            }
+
+            chatHistory.push({sender: "Bot", text: fullBotText, id: `msg-${loaderId}`, files: []});
+            localStorage.setItem('puter_chat_history_' + currentSessionId, JSON.stringify(chatHistory));
+
+            if (isVoiceResponseActive && window.AndroidInterface) {
+                window.AndroidInterface.speak(fullBotText);
+            }
+        } catch (completedError) {
+            console.error("index.html: Grounding prompt execution failure.", completedError);
+            if (window.AndroidInterface && window.AndroidInterface.logHtmlGlitch) {
+                window.AndroidInterface.logHtmlGlitch("index.html", "RAG execution failure: " + completedError.message);
+            }
+            const targetSpan = document.getElementById(`stream-content-${loaderId}`);
+            if (targetSpan) targetSpan.innerHTML = "RAG Synthesize error: " + completedError.message;
+        }
+    }
+
+    // --- HELPER FUNCTIONS ---
+
     function saveCustom() {
       customInstruction = document.getElementById('customInput').value;
       localStorage.setItem('puter_custom_ins', customInstruction);
@@ -2889,6 +3012,7 @@
       closeModal('customModal');
     }
 
+    // Toggle logic remains standard
     function toggleSettingsUI() {
       const bar = document.getElementById('settingsBar');
       const btn = document.getElementById('toggleSettingsBtn');
@@ -2901,14 +3025,19 @@
       }
     }
 
+    /* --- REQUIREMENT #3: NEW SESSION FIX --- */
     function newSession() {
+      // Create a new ID and reset UI without deleting data
       currentSessionId = Date.now().toString();
       localStorage.setItem('puter_current_session_id', currentSessionId);
+
+      /* USAGE TOTALS ARE NOW PERSISTENT - REMOVED RESET FROM HERE PER REQUEST */
 
       document.getElementById('puterChatLog').innerHTML = '';
       chatHistory = [];
       clearFiles();
 
+      // Clear active native background tabs conceptually
       if (window.AndroidInterface && window.AndroidInterface.clearBackgroundTabs) {
           window.AndroidInterface.clearBackgroundTabs();
       }
@@ -2921,6 +3050,7 @@
       }
     }
 
+    // Specification 1: Language Target Key Input hydration
     function handleLanguageInput(value) {
         const cleanedValue = value.trim();
         if (cleanedValue) {
@@ -2933,6 +3063,10 @@
             localStorage.removeItem("puter_target_language");
         }
     }
+
+    // =========================================================================
+    // NEW: EXPANDABLE GEMINI CONFIGURATION DRAWER LOGIC
+    // =========================================================================
 
     function toggleGeminiDrawer() {
         const drawer = document.getElementById("geminiSettingsDrawer");
@@ -3000,51 +3134,7 @@
         }
     }
 
-    window.switchToLiveMode = function() {
-        if (window.AndroidInterface) {
-            window.AndroidInterface.logDiagnostic("Bridge event: switchToLiveMode signal captured on WebView.", "LIFECYCLE");
-        }
-        
-        const isLiveCompatible = globalSelectedModel && (globalSelectedModel.includes("live") || globalSelectedModel.includes("native-audio") || globalSelectedModel.includes("exp"));
-        if (activeProvider !== "Gemini" || !isLiveCompatible) {
-            activeProvider = "Gemini";
-            if (window.AndroidInterface && window.AndroidInterface.setActiveProvider) {
-                window.AndroidInterface.setActiveProvider("Gemini");
-            }
-            const defaultLiveModel = "gemini-3.1-flash-live-preview";
-            selectModel(defaultLiveModel, "Gemini 3.1 Flash Live Preview", { id: defaultLiveModel, categories: ["live", "text_chat", "audio"] });
-            if (window.AndroidInterface && window.AndroidInterface.showToast) {
-                window.AndroidInterface.showToast("Switched active provider model to Gemini Live Preview");
-            }
-        }
-
-        const apiKey = window.AndroidInterface ? window.AndroidInterface.getGeminiApiKey() : (localStorage.getItem("gemini_user_api_key") || "");
-        if (!apiKey) {
-            alert("Please configure a valid Gemini Access API key first in Settings.");
-            
-            // Remove the active animation class if connection fails early
-            const icon = document.getElementById("voiceAgentIcon");
-            if (icon) {
-                icon.classList.remove("sparkle-active");
-            }
-
-            if (window.AndroidInterface) {
-                window.AndroidInterface.logDiagnostic("switchToLiveMode failed: Missing API Key.", "ERROR");
-            }
-            return;
-        }
-
-        const voiceElement = document.getElementById("geminiVoiceSelect");
-        const voiceName = voiceElement ? voiceElement.value : "Puck";
-
-        const groundingElement = document.getElementById("geminiGroundingSelect");
-        const useSearch = groundingElement ? (groundingElement.value === "search") : false;
-
-        const modelId = globalSelectedModel || "gemini-3.1-flash-live-preview";
-
-        connectWebSocketLive(apiKey, modelId, voiceName, useSearch);
-    };
-
+    /* --- ADOPTED PCM-WAV & RAW ARRAY BUFFER PIPELINE UTILITIES --- */
     function base64ToArrayBuffer(base64) {
         const binaryString = window.atob(base64);
         const len = binaryString.length;
@@ -3060,7 +3150,6 @@
         const header = new ArrayBuffer(44);
         const view = new DataView(header);
 
-        // Helper string writer
         function writeString(view, offset, string) {
             for (let i = 0; i < string.length; i++) {
                 view.setUint8(offset + i, string.charCodeAt(i));
@@ -3100,17 +3189,14 @@
 
     /* --- ADOPTED WEBSOCKET LIVE AUDIO ROUTING PIPELINES --- */
     function connectWebSocketLive(apiKey, modelId, voiceName, useSearch) {
-        // Set the transitional setup flag before triggering the reset cleanup [1]
-        window.isConnectingLiveSocket = true;
-
         disconnectWebSocketLive();
-
+        
         if (window.AndroidInterface) {
             window.AndroidInterface.logDiagnostic("Attempting WebSockets Live API channel connection. Model: " + modelId, "NETWORK");
         }
-
+        
         const url = `wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent?key=${apiKey}`;
-
+        
         try {
             if (window.AndroidInterface) {
                 window.AndroidInterface.logDiagnostic("Creating WebSocket instance with key length: " + (apiKey ? apiKey.length : 0), "NETWORK");
@@ -3118,14 +3204,13 @@
             liveWs = new WebSocket(url);
         } catch (err) {
             console.error("Live WebSocket creation exception: ", err);
-            window.isConnectingLiveSocket = false; // Reset the transitioning flag on initial failure [1]
             if (window.AndroidInterface) {
                 window.AndroidInterface.logDiagnostic("WebSockets construction threw exception: " + err.message, "ERROR");
                 window.AndroidInterface.logHtmlGlitch("index.html - WebSockets", "Creation Exception: " + err.message);
             }
             return;
         }
-
+        
         liveWs.onopen = () => {
             if (window.AndroidInterface) {
                 window.AndroidInterface.logDiagnostic("WebSocket open event successfully fired. ReadyState: " + liveWs.readyState, "NETWORK");
@@ -3143,9 +3228,7 @@
                             }
                         }
                     },
-                    tools: useSearch ? [{ google_search: {} }] : undefined,
-                    inputAudioTranscription: {},
-                    outputAudioTranscription: {}
+                    tools: useSearch ? [{ googleSearch: {} }] : undefined
                 }
             };
             liveWs.send(JSON.stringify(setupMessage));
@@ -3153,7 +3236,9 @@
                 window.AndroidInterface.logDiagnostic("Live session setup configuration frame dispatched to host.", "NETWORK");
             }
         };
-
+        
+        let currentLiveBotSpan = null;
+        
         liveWs.onmessage = async (event) => {
             try {
                 let payload;
@@ -3166,41 +3251,29 @@
                 } else {
                     payload = JSON.parse(event.data);
                 }
-
+                
                 if (payload.setupComplete) {
-                    // Reset transitional setup flag once handshake is fully confirmed [1]
-                    window.isConnectingLiveSocket = false;
-
-                    if (!isLiveSessionConnected) {
-                        isLiveSessionConnected = true;
-
-                        if (window.AndroidInterface) {
-                            window.AndroidInterface.logDiagnostic("Handshake handshake confirmed. Triggering capture initialization...", "NETWORK");
-                            // Notify Android to cleanly release native SpeechRecognizer locks
-                            if (window.AndroidInterface.setLiveSocketActive) {
-                                window.AndroidInterface.setLiveSocketActive(true);
-                            }
-                            window.AndroidInterface.showToast("Connected to Gemini Live Model");
+                    if (window.AndroidInterface) {
+                        window.AndroidInterface.logDiagnostic("Handshake handshake confirmed. Triggering capture initialization...", "NETWORK");
+                        // Notify Android to cleanly release native SpeechRecognizer locks
+                        if (window.AndroidInterface.setLiveSocketActive) {
+                            window.AndroidInterface.setLiveSocketActive(true);
                         }
-                        initMicrophoneCaptureLive();
-
-                        // Visual Feedback in Chat log indicating successful connection
-                        appendChat("System", "🟢 Connected to Gemini Live Model", false, []);
                     }
-
+                    initMicrophoneCaptureLive();
+                    
                     // Dispatch any stored/pending query that initiated the connection
                     if (pendingLiveQuery) {
                         if (window.AndroidInterface) {
                             window.AndroidInterface.logDiagnostic("Sending deferred query following socket activation: " + pendingLiveQuery.text.substring(0, 15) + "...", "QUERY");
                         }
-                        sendLiveTextQuery(pendingLiveQuery.text, pendingLiveQuery.files);
+                        sendLiveTextQuery(promptText, files);
                         pendingLiveQuery = null;
                     }
                     return;
                 }
-
+                
                 if (payload.error) {
-                    window.isConnectingLiveSocket = false; // Reset the transitioning flag [1]
                     console.error("Live server error returned:", payload.error);
                     if (window.AndroidInterface) {
                         window.AndroidInterface.logDiagnostic("Live session host returned structural error: " + JSON.stringify(payload.error), "ERROR");
@@ -3209,14 +3282,14 @@
                     disconnectWebSocketLive();
                     return;
                 }
-
+                
                 if (payload.serverContent) {
                     const content = payload.serverContent;
-
+                    
                     // Unified Live Barge-in Interruption Hook
                     if (content.interrupted) {
                         if (window.AndroidInterface) {
-                            window.AndroidInterface.logDiagnostic("⚡ Live Barge-in Interruption packet received. Purging audio buffers.", "BARGE_IN");
+                            window.AndroidInterface.logDiagnostic("⚡ Live Barge-in Interruption packet received. Purging output queues.", "BARGE_IN");
                         }
                         clearPlaybackQueueLive();
                         if (currentLiveBotSpan) {
@@ -3224,56 +3297,19 @@
                         }
                         currentLiveBotSpan = null;
                     }
-
+                    
                     if (content.modelTurn && content.modelTurn.parts) {
-                        // Consolidate currentLiveUserSpan if it exists (Turn Complete)
-                        if (currentLiveUserSpan) {
-                            const finalUserText = currentLiveUserSpan.innerText.trim();
-                            if (finalUserText) {
-                                const uMsgId = currentLiveUserSpan.dataset.msgId || "live-user-" + Date.now();
-                                chatHistory.push({sender: "User", text: finalUserText, id: uMsgId, files: []});
-                                localStorage.setItem('puter_chat_history_' + currentSessionId, JSON.stringify(chatHistory));
-                            }
-                            currentLiveUserSpan = null;
-                        }
-
                         const msgId = "live-msg-" + Date.now();
                         if (!currentLiveBotSpan) {
                             const log = document.getElementById('puterChatLog');
                             const div = document.createElement('div');
                             div.className = "message bot-message";
                             div.id = msgId;
-
-                            let pressTimer;
-                            let startX, startY;
-                            div.onpointerdown = (e) => { 
-                                if (pressTimer) clearTimeout(pressTimer);
-                                startX = e.clientX;
-                                startY = e.clientY;
-                                pressTimer = window.setTimeout(() => { 
-                                    const currentText = document.getElementById(`live-span-${msgId}`)?.innerText || "";
-                                    showContextMenu(e, currentText, msgId); 
-                                }, 700); 
-                            };
-                            div.onpointermove = (e) => {
-                                if (pressTimer && Math.hypot(e.clientX - startX, e.clientY - startY) > 8) {
-                                    clearTimeout(pressTimer);
-                                    pressTimer = null;
-                                }
-                            };
-                            div.onpointerup = () => {
-                                if (pressTimer) { clearTimeout(pressTimer); pressTimer = null; }
-                            };
-                            div.onpointercancel = () => {
-                                if (pressTimer) { clearTimeout(pressTimer); pressTimer = null; }
-                            };
-                            div.oncontextmenu = (e) => e.preventDefault();
-
                             div.innerHTML = `<div class="message-content"><b>Bot:</b><br><span id="live-span-${msgId}"></span></div>`;
                             log.appendChild(div);
                             currentLiveBotSpan = document.getElementById(`live-span-${msgId}`);
                         }
-
+                        
                         for (const part of content.modelTurn.parts) {
                             if (part.text) {
                                 currentLiveBotSpan.innerText += part.text;
@@ -3286,112 +3322,16 @@
                         }
                         window.scrollTo(0, document.body.scrollHeight);
                     }
-
-                    if (content.outputTranscription && content.outputTranscription.text) {
-                        // Consolidate currentLiveUserSpan if it exists (Turn Complete)
-                        if (currentLiveUserSpan) {
-                            const finalUserText = currentLiveUserSpan.innerText.trim();
-                            if (finalUserText) {
-                                const uMsgId = currentLiveUserSpan.dataset.msgId || "live-user-" + Date.now();
-                                chatHistory.push({sender: "User", text: finalUserText, id: uMsgId, files: []});
-                                localStorage.setItem('puter_chat_history_' + currentSessionId, JSON.stringify(chatHistory));
-                            }
-                            currentLiveUserSpan = null;
-                        }
-
-                        const msgId = "live-msg-transcript-" + Date.now();
-                        if (!currentLiveBotSpan) {
-                            const log = document.getElementById('puterChatLog');
-                            const div = document.createElement('div');
-                            div.className = "message bot-message";
-                            div.id = msgId;
-
-                            let pressTimer;
-                            let startX, startY;
-                            div.onpointerdown = (e) => { 
-                                if (pressTimer) clearTimeout(pressTimer);
-                                startX = e.clientX;
-                                startY = e.clientY;
-                                pressTimer = window.setTimeout(() => { 
-                                    const currentText = document.getElementById(`live-span-${msgId}`)?.innerText || "";
-                                    showContextMenu(e, currentText, msgId); 
-                                }, 700); 
-                            };
-                            div.onpointermove = (e) => {
-                                if (pressTimer && Math.hypot(e.clientX - startX, e.clientY - startY) > 8) {
-                                    clearTimeout(pressTimer);
-                                    pressTimer = null;
-                                }
-                            };
-                            div.onpointerup = () => {
-                                if (pressTimer) { clearTimeout(pressTimer); pressTimer = null; }
-                            };
-                            div.onpointercancel = () => {
-                                if (pressTimer) { clearTimeout(pressTimer); pressTimer = null; }
-                            };
-                            div.oncontextmenu = (e) => e.preventDefault();
-
-                            div.innerHTML = `<div class="message-content"><b>Bot:</b><br><span id="live-span-${msgId}"></span></div>`;
-                            log.appendChild(div);
-                            currentLiveBotSpan = document.getElementById(`live-span-${msgId}`);
-                        }
-
-                        currentLiveBotSpan.innerText += content.outputTranscription.text;
-                        chatHistory.push({sender: "Bot", text: content.outputTranscription.text, id: msgId, files: []});
-                        localStorage.setItem('puter_chat_history_' + currentSessionId, JSON.stringify(chatHistory));
-                        window.scrollTo(0, document.body.scrollHeight);
-                    }
-
+                    
                     if (content.turnComplete) {
                         if (window.AndroidInterface) {
                             window.AndroidInterface.logDiagnostic("Live agent server turn execution completed.", "NETWORK");
                         }
                         currentLiveBotSpan = null;
                     }
-
+                    
                     if (content.inputTranscription && content.inputTranscription.text) {
-                        // COHESIVE VOICE RE-ASSEMBLER PIPELINE
-                        const msgId = "live-user-msg-" + Date.now();
-                        if (!currentLiveUserSpan) {
-                            const log = document.getElementById('puterChatLog');
-                            const div = document.createElement('div');
-                            div.className = "message user-message";
-                            div.id = msgId;
-
-                            let pressTimer;
-                            let startX, startY;
-                            div.onpointerdown = (e) => { 
-                                if (pressTimer) clearTimeout(pressTimer);
-                                startX = e.clientX;
-                                startY = e.clientY;
-                                pressTimer = window.setTimeout(() => { 
-                                    const currentText = document.getElementById(`live-user-span-${msgId}`)?.innerText || "";
-                                    showContextMenu(e, currentText, msgId); 
-                                }, 700); 
-                            };
-                            div.onpointermove = (e) => {
-                                if (pressTimer && Math.hypot(e.clientX - startX, e.clientY - startY) > 8) {
-                                    clearTimeout(pressTimer);
-                                    pressTimer = null;
-                                }
-                            };
-                            div.onpointerup = () => {
-                                if (pressTimer) { clearTimeout(pressTimer); pressTimer = null; }
-                            };
-                            div.onpointercancel = () => {
-                                if (pressTimer) { clearTimeout(pressTimer); pressTimer = null; }
-                            };
-                            div.oncontextmenu = (e) => e.preventDefault();
-
-                            div.innerHTML = `<div class="message-content"><b>User:</b><br><span id="live-user-span-${msgId}"></span></div>`;
-                            log.appendChild(div);
-                            currentLiveUserSpan = document.getElementById(`live-user-span-${msgId}`);
-                            currentLiveUserSpan.dataset.msgId = msgId;
-                        }
-
-                        currentLiveUserSpan.innerText += content.inputTranscription.text;
-                        window.scrollTo(0, document.body.scrollHeight);
-
+                        appendChat("User", content.inputTranscription.text, false, []);
                         // Forward user transcriptions dynamically to native VoiceAgentActivity
                         if (window.AndroidInterface && window.AndroidInterface.broadcastUserTranscript) {
                             window.AndroidInterface.broadcastUserTranscript(content.inputTranscription.text);
@@ -3399,7 +3339,6 @@
                     }
                 }
             } catch (e) {
-                window.isConnectingLiveSocket = false; // Reset transitioning flag on error [1]
                 console.error("Live packet processing exception: ", e);
                 if (window.AndroidInterface) {
                     window.AndroidInterface.logDiagnostic("Error processing message frame: " + e.message, "ERROR");
@@ -3407,17 +3346,15 @@
                 }
             }
         };
-
+        
         liveWs.onclose = (event) => {
-            window.isConnectingLiveSocket = false; // Reset the transitioning flag on closure [1]
             if (window.AndroidInterface) {
                 window.AndroidInterface.logDiagnostic("WebSocket channel closed. Status Code: " + event.code + " | Reason: " + (event.reason || "None") + " | Clean close: " + event.wasClean, "NETWORK");
             }
             disconnectWebSocketLive();
         };
-
+        
         liveWs.onerror = (err) => {
-            window.isConnectingLiveSocket = false; // Reset the transitioning flag on error [1]
             console.error("Live WebSockets channel error: ", err);
             if (window.AndroidInterface) {
                 window.AndroidInterface.logDiagnostic("WebSocket protocol network error observed. State: " + (liveWs ? liveWs.readyState : "null"), "ERROR");
@@ -3428,7 +3365,7 @@
     async function initMicrophoneCaptureLive() {
         if (window.AndroidInterface) {
             window.AndroidInterface.logDiagnostic("WebRTC initMicrophoneCaptureLive starting. Checking secure origin context: " + window.isSecureContext, "WEBRTC");
-
+            
             // Enumerate media devices first to diagnose hardware availability
             try {
                 const devices = await navigator.mediaDevices.enumerateDevices();
@@ -3460,7 +3397,7 @@
             }
             const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
             liveMicStream = stream;
-
+            
             if (window.AndroidInterface) {
                 const tracks = stream.getAudioTracks();
                 window.AndroidInterface.logDiagnostic("Acquired stream tracks count: " + tracks.length, "WEBRTC");
@@ -3482,22 +3419,22 @@
 
             const source = liveAudioContext.createMediaStreamSource(stream);
             liveAudioProcessor = liveAudioContext.createScriptProcessor(2048, 1, 1);
-
+            
             liveAudioProcessor.onaudioprocess = (e) => {
                 if (!liveWs || liveWs.readyState !== WebSocket.OPEN) return;
-
+                
                 const inputFloat32 = e.inputBuffer.getChannelData(0);
                 const pcmBuffer = new ArrayBuffer(inputFloat32.length * 2);
                 const pcmView = new DataView(pcmBuffer);
-
+                
                 for (let i = 0; i < inputFloat32.length; i++) {
                     let sample = Math.max(-1, Math.min(1, inputFloat32[i]));
                     let int16Sample = sample < 0 ? sample * 0x8000 : sample * 0x7FFF;
                     pcmView.setInt16(i * 2, int16Sample, true);
                 }
-
+                
                 const base64AudioChunk = arrayBufferToBase64(pcmBuffer);
-
+                
                 liveWs.send(JSON.stringify({
                     realtimeInput: {
                         audio: {
@@ -3507,7 +3444,7 @@
                     }
                 }));
             };
-
+            
             source.connect(liveAudioProcessor);
             liveAudioProcessor.connect(liveAudioContext.destination);
             if (window.AndroidInterface) {
@@ -3522,6 +3459,10 @@
                 window.AndroidInterface.logDiagnostic(logErr + ". Bypassing microphone stream.", "WEBRTC");
                 window.AndroidInterface.logHtmlGlitch("index.html - WebRTC", logErr);
             }
+            // MODIFIED: Do not call disconnectWebSocketLive() on WebRTC microphone errors! 
+            // In hybrid mode, the native VoiceAgentActivity captures the user speech natively 
+            // and forwards the transcript frame via text. Bypassing mic streaming prevents 
+            // the WebSocket from being terminated early, allowing RAG and TTS responses.
         }
     }
 
@@ -3575,33 +3516,33 @@
                     }
                 };
             }
-
+            
             const rawBuffer = base64ToArrayBuffer(base64Data);
             const int16Samples = new Int16Array(rawBuffer);
             const float32Samples = new Float32Array(int16Samples.length);
-
+            
             for (let i = 0; i < int16Samples.length; i++) {
                 float32Samples[i] = int16Samples[i] / 32768.0;
             }
-
+            
             const audioBuffer = livePlayCtx.createBuffer(1, float32Samples.length, 24000);
             audioBuffer.copyToChannel(float32Samples, 0);
-
+            
             const sourceNode = livePlayCtx.createBufferSource();
             sourceNode.buffer = audioBuffer;
             sourceNode.connect(livePlayCtx.destination);
-
+            
             const currentTime = livePlayCtx.currentTime;
             if (nextPlayTime < currentTime) {
                 nextPlayTime = currentTime + 0.05;
             }
-
+            
             sourceNode.start(nextPlayTime);
             activeSources.push({
                 source: sourceNode,
                 endTime: nextPlayTime + audioBuffer.duration
             });
-
+            
             nextPlayTime += audioBuffer.duration;
             activeSources = activeSources.filter(item => item.endTime > currentTime);
         } catch (err) {
@@ -3613,35 +3554,11 @@
     }
 
     function disconnectWebSocketLive() {
-        if (!liveWs) return; // Guard against multiple teardown iterations
-        isLiveSessionConnected = false; // Reset connection session flag
-
         if (window.AndroidInterface) {
             window.AndroidInterface.logDiagnostic("disconnectWebSocketLive sequence initiated.", "NETWORK");
-            window.AndroidInterface.showToast("Disconnected from Live Model");
         }
-
-        // Visual Feedback in Chat log indicating disconnection
-        appendChat("System", "🔴 Disconnected from Live Model", false, []);
-
-        // Consolidate any active/partially transcribed user speech before closing connection
-        if (currentLiveUserSpan) {
-            const finalUserText = currentLiveUserSpan.innerText.trim();
-            if (finalUserText) {
-                const uMsgId = currentLiveUserSpan.dataset.msgId || "live-user-" + Date.now();
-                chatHistory.push({sender: "User", text: finalUserText, id: uMsgId, files: []});
-                localStorage.setItem('puter_chat_history_' + currentSessionId, JSON.stringify(chatHistory));
-            }
-            currentLiveUserSpan = null;
-        }
-
-        currentLiveBotSpan = null;
-
-        // Gated call to prevent premature STT activations [1]
-        if (!window.isConnectingLiveSocket) {
-            if (window.AndroidInterface && window.AndroidInterface.setLiveSocketActive) {
-                window.AndroidInterface.setLiveSocketActive(false);
-            }
+        if (window.AndroidInterface && window.AndroidInterface.setLiveSocketActive) {
+            window.AndroidInterface.setLiveSocketActive(false);
         }
         if (liveMicStream) {
             try {
@@ -3709,12 +3626,6 @@
             }
             liveWs = null;
         }
-
-        // Revert the sparkle icon back to original static state
-        const icon = document.getElementById("voiceAgentIcon");
-        if (icon) {
-            icon.classList.remove("sparkle-active");
-        }
     }
 
     function clearPlaybackQueueLive() {
@@ -3727,150 +3638,28 @@
         nextPlayTime = 0;
     }
 
-    function readAloud(elementId) {
-        const el = document.getElementById(elementId);
-        if (!el) {
-            console.error("readAloud: DOM Node with target ID not resolved: " + elementId);
-            return;
-        }
-        const text = el.innerText || el.textContent || "";
-        executeSpeechSynthesisFallback(text);
-    }
-
-    function executeSpeechSynthesisFallback(text) {
-        if (!text) return;
-
-        if (window.AndroidInterface && window.AndroidInterface.speak) {
-            if (window.AndroidInterface.logDiagnostic) {
-                window.AndroidInterface.logDiagnostic("Executing Tier 1 Speech synthesis natively.", "SPEECH");
-            }
-            window.AndroidInterface.speak(text);
-        } else {
-            console.log("WebAppInterface speak method is not available. Executing Tier 2 web speech fallback...");
-            if (window.AndroidInterface && window.AndroidInterface.logDiagnostic) {
-                window.AndroidInterface.logDiagnostic("Executing Tier 2 Speech synthesis browser fallback.", "SPEECH");
-            }
-            if (window.speechSynthesis) {
-                try {
-                    window.speechSynthesis.cancel();
-                    const utterance = new SpeechSynthesisUtterance(text);
-                    
-                    const targetLanguage = localStorage.getItem("puter_target_language") || "";
-                    if (targetLanguage) {
-                        utterance.lang = targetLanguage;
-                    }
-                    
-                    window.speechSynthesis.speak(utterance);
-                } catch (e) {
-                    console.error("Web Speech synthesis failed: ", e);
-                }
-            } else {
-                console.error("Speech Synthesis is not supported in this browser context.");
-            }
-        }
-    }
-
-    /* --- STARTUP DIAGNOSTICS CONTROL HOOKS --- */
-    function logTerminal(message, type = "info") {
-        const term = document.getElementById("diagnosticTerminalLogs");
-        if (!term) return;
-        const timestamp = new Date().toLocaleTimeString();
-        let prefix = "[INFO]";
-        if (type === "error") prefix = "[ERROR] ❌";
-        if (type === "warning") prefix = "[WARN] ⚠️";
-        if (type === "success") prefix = "[SUCCESS] ";
-        term.textContent += `[${timestamp}] ${prefix} ${message}\n`;
-        term.scrollTop = term.scrollHeight;
-        console.log(`[DIAG] ${prefix} ${message}`);
-    }
-
-    async function runStartupDiagnostics() {
-        openModal('diagnosticModal');
-        const term = document.getElementById("diagnosticTerminalLogs");
-        if (term) term.textContent = ""; 
-
-        logTerminal("Initializing Startup Web-Native diagnostics self-check...", "info");
-
-        // 1. WEB AUDIT
-        logTerminal("Starting Web API Audit...", "info");
-        logTerminal(`window.isSecureContext: ${window.isSecureContext}`, window.isSecureContext ? "success" : "warning");
-        if (!window.isSecureContext) {
-            logTerminal("WARNING: Secure Context validation failed on virtual origin. WebRTC media capture (microphone) will be blocked by Chromium.", "error");
-        }
-
-        const hasMediaDevices = !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia);
-        logTerminal(`navigator.mediaDevices availability: ${hasMediaDevices}`, hasMediaDevices ? "success" : "error");
-
-        const hasWebSpeech = !!(window.SpeechRecognition || window.webkitSpeechRecognition);
-        logTerminal(`SpeechRecognition availability: ${hasWebSpeech}`, hasWebSpeech ? "success" : "warning");
-
-        const hasSynth = !!window.speechSynthesis;
-        logTerminal(`speechSynthesis availability: ${hasSynth}`, hasSynth ? "success" : "error");
-
-        try {
-            const tempAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
-            logTerminal(`AudioContext state: ${tempAudioCtx.state} | Native sampleRate: ${tempAudioCtx.sampleRate}Hz`, "success");
-            await tempAudioCtx.close();
-        } catch (audioErr) {
-            logTerminal(`Failed to instantiate dummy AudioContext: ${audioErr.message}`, "error");
-        }
-
-        // 2. NATIVE AUDIT
-        if (window.AndroidInterface && window.AndroidInterface.getSystemHardwareDiagnostics) {
-            logTerminal("Starting Native Android Hardware Audit...", "info");
-            try {
-                const rawDiag = window.AndroidInterface.getSystemHardwareDiagnostics();
-                const diag = JSON.parse(rawDiag);
-                logTerminal(`RECORD_AUDIO Permission: ${diag.native_record_audio_granted}`, diag.native_record_audio_granted ? "success" : "error");
-                logTerminal(`POST_NOTIFICATIONS Permission: ${diag.native_post_notifications_granted}`, diag.native_post_notifications_granted ? "success" : "warning");
-                logTerminal(`Native STT Engine Available: ${diag.native_stt_engine_available}`, diag.native_stt_engine_available ? "success" : "warning");
-                logTerminal(`Native Microphone Muted: ${diag.hardware_mic_muted}`, !diag.hardware_mic_muted ? "success" : "warning");
-                logTerminal(`Native Microphone Occupied: ${diag.hardware_mic_occupied}`, !diag.hardware_mic_occupied ? "success" : "warning");
-                logTerminal(`Active Recording Configurations Count: ${diag.active_recording_configs_count}`, "info");
-                logTerminal(`Device Model: ${diag.device_manufacturer} ${diag.device_model} (SDK ${diag.device_sdk_int})`, "info");
-            } catch (diagErr) {
-                logTerminal(`Failed to parse native diagnostics: ${diagErr.message}`, "error");
-            }
-        } else {
-            logTerminal("WARNING: AndroidInterface/Native bridge diagnostics not detected. Operating in standalone browser mode.", "warning");
-        }
-        
-        logTerminal("Diagnostics self-check completed.", "success");
-    }
-
-    function copyDiagnosticLogs() {
-        const term = document.getElementById("diagnosticTerminalLogs");
-        if (term) {
-            if (window.AndroidInterface && window.AndroidInterface.copyToClipboard) {
-                window.AndroidInterface.copyToClipboard(term.textContent);
-            } else {
-                navigator.clipboard.writeText(term.textContent);
-                alert("Logs copied to clipboard.");
-            }
-        }
-    }
-
+    // Execute immediately on load
     window.onload = () => {
         console.log("Page Lifecycle: ONLOAD on Secure Origin");
 
+        // FIX: Load Models IMMEDIATELY before waiting for SDK
         loadModels();
 
         syncAuthSession();
         loadSavedHistory();
-        loadNostrIdentityInUI(); 
+        loadNostrIdentityInUI(); // Load keys dynamically on initial layout render
         document.getElementById('customInput').value = customInstruction;
 
+        // Specification 1: Language target key input hydration
         const savedLanguageSetting = localStorage.getItem("puter_target_language") || "";
         const languageInputContainer = document.getElementById("modelLanguageInput");
         if (languageInputContainer) {
             languageInputContainer.value = savedLanguageSetting;
         }
 
+        /* INITIALIZE PERSISTENT USAGE DISPLAY */
         document.getElementById('totalTokenVal').textContent = `Global Total: ${sessionTotalTokens} tokens`;
         document.getElementById('totalCreditVal').textContent = `Global Cost: $${sessionTotalCredits.toFixed(4)}`;
-
-        // Trigger startup terminal self-diagnostics checklist immediately on load
-        runStartupDiagnostics();
 
         if (typeof puter !== 'undefined') {
             console.log("Puter SDK detected. Waiting for ready signal...");
@@ -3882,15 +3671,6 @@
             console.error("CRITICAL: Puter.js SDK failed to load on this origin!");
         }
     };
-
-    function openContactDialog() {
-        if (window.AndroidInterface && window.AndroidInterface.openContactDialog) {
-            window.AndroidInterface.openContactDialog();
-        } else {
-            console.warn("openContactDialog: AndroidInterface not found.");
-            alert("This option is only supported in the mobile application.");
-        }
-    }
   </script>
 </body>
 </html>
