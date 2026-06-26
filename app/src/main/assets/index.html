@@ -307,6 +307,16 @@
           webview-hue-shift 3s infinite linear !important;
     }
 
+    .search-bar-container .send-btn-cls { 
+        right: 6px; 
+        background-color: #1a73e8 !important; 
+        color: white !important;              
+        display: none; 
+        border-radius: 50%; 
+        box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+    }
+    .send-btn-cls span { font-variation-settings: 'FILL' 1; }
+
     /* VISIBILITY LOGIC */
     .search-bar-container.has-text .mic-btn-cls,
     .search-bar-container.has-text .voice-agent-btn-cls { 
@@ -555,7 +565,7 @@
     <div class="modal">
       <h3>Custom Instruction</h3>
       <p style="font-size: 14px; color: #666;">Set a system behavior for the AI models.</p>
-      <textarea id="customInput" style="width:100%; height:120px; padding:10px; border-radius:8px; border:1px solid #ccc; outline:none;"></textarea>
+      <textarea id="customInput" style="width:100%; height:120px; padding:10px; border-radius:8px; border:1px solid #ccc; outline:none PapayaWhip;"></textarea>
       <div class="modal-buttons">
         <button class="btn-secondary" onclick="closeModal('customModal')">Cancel</button>
         <button class="btn-primary" onclick="saveCustom()">Save</button>
@@ -797,6 +807,7 @@
     }
     function closeModal(id) { document.getElementById(id).style.display = 'none'; }
 
+    // Toggle drawer functionality
     function toggleAccordionMenu() {
         document.getElementById('accordionMenu').classList.toggle('show');
     }
@@ -1894,7 +1905,6 @@
         }
     }
 
-    // 4. Android Bridge Handlers
     window.onSpeechResult = (text) => {
       console.log("Speech Result Received: " + text);
       document.getElementById('puterChatInput').value = text;
@@ -1902,7 +1912,6 @@
       sendMessage(true); 
     };
 
-    /* --- REQUIREMENT #2: CONTINUOUS INTERRUPTION LOOP --- */
     window.onSpeechFinished = () => {
         console.log("AI speech finished. Re-opening mic for continuous conversation.");
         if(isVoiceResponseActive && window.AndroidInterface) {
@@ -1910,7 +1919,6 @@
         }
     };
 
-    /* --- FEATURE ENHANCEMENT: FILE PICKER RESULT HANDLER --- */
     window.onImageResult = (base64) => {
       console.log("New File/Image Data Received via Bridge");
 
@@ -1964,7 +1972,6 @@
         handleInput();
     }
 
-    // 5. SDK-DRIVEN AUTHENTICATION WITH CORE BUG FIXES
     async function handleAuthAction(fromSendError = false) {
         try {
             if (typeof puter === 'undefined' || !puter.auth) {
@@ -2020,13 +2027,6 @@
       }
     }
 
-    // =========================================================================
-    // NEW: AUTOMATED ACTIVE SEARCH AND IN-MEMORY RAG COMPLETION
-    // =========================================================================
-
-    /**
-     * Helper to read the hex public key of the native identity record.
-     */
     async function getNativePubkeyHex() {
         if (window.AndroidInterface && window.AndroidInterface.getNativeIdentity) {
             try {
@@ -2039,9 +2039,6 @@
         return "";
     }
 
-    /**
-     * Lightweight SHA-256 string encoder utility.
-     */
     async function sha256(dataString) {
         const utf8 = new TextEncoder().encode(dataString);
         const hashBuffer = await crypto.subtle.digest('SHA-256', utf8);
@@ -2049,17 +2046,11 @@
         return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
     }
 
-    /**
-     * Programs state descriptions inside loader indicator blocks dynamically.
-     */
     function updateLoaderCardText(loaderId, text) {
         const label = document.getElementById(`loader-state-label-${loaderId}`);
         if (label) label.innerText = text;
     }
 
-    /**
-     * Fallback processor designed to preserve conversational loops if sockets fail.
-     */
     async function executeStandardFallback(queryText, loaderId) {
         const activeModel = globalSelectedModel;
         try {
@@ -2088,7 +2079,6 @@
                 stream: true
             });
 
-            // Purge the header loader nodes, transforming card back to standard conversational bubble
             const loaderTextEl = document.getElementById(`loader-indicator-text-${loaderId}`);
             if (loaderTextEl) loaderTextEl.remove();
 
@@ -2105,7 +2095,6 @@
                 }
             }
 
-            // Persist conversational fallback to historical databases
             chatHistory.push({sender: "Bot", text: fullBotText, id: `msg-${loaderId}`, files: []});
             localStorage.setItem('puter_chat_history_' + currentSessionId, JSON.stringify(chatHistory));
 
@@ -2119,11 +2108,6 @@
         }
     }
 
-    /**
-     * Silent execution engine driving prompt compiles, boundary formatting,
-     * and in-memory RAG completion.
-     * Requirement: Instruction Two, Five and Seven
-     */
     async function executeAutoModeRAG(queryText, rawScrapedJson, loaderId) {
         if (window.AndroidInterface) {
             window.AndroidInterface.nativeLog("Starting AutoMode RAG context extraction...", "native");
@@ -2132,7 +2116,6 @@
         try {
             const items = JSON.parse(rawScrapedJson);
             if (Array.isArray(items)) {
-                // Slice top 2 crawled web pages matching user's current query
                 const top2 = items.slice(0, 2);
                 top2.forEach(item => {
                     const isUniversal = (item.type === "universal_web");
@@ -2140,7 +2123,6 @@
                     const title = isUniversal ? (item.metadata?.title || "Universal Article") : `${item.specifications?.brand || ''} ${item.specifications?.model || ''}`;
                     const contentText = isUniversal ? (item.content || "") : JSON.stringify(item.specifications);
 
-                    // Structured Data boundaries Layer 2
                     liveContextString += `[START OF LIVE WEB CONTEXT]\n`;
                     liveContextString += `Source URL: ${url}\n`;
                     liveContextString += `Page Title: ${title}\n`;
@@ -2153,20 +2135,16 @@
             liveContextString = `[START OF LIVE WEB CONTEXT]\nScraped Content: ${rawScrapedJson}\n[END OF LIVE WEB CONTEXT]\n`;
         }
 
-        // Layer 1: System and Role Definition
         let systemPrompt = "You are an up-to-date, conversational AI assistant equipped with real-time web-crawling capabilities.\n";
         systemPrompt += "You have been provided with fresh, crawled web documents matching the user's current query. You must prioritize this provided web data to construct your response.\n\n";
 
-        // Layer 2: Compile XML boundaries
         let groundingPrompt = systemPrompt + liveContextString;
 
-        // Layer 3: Behavioral and Formatting Constraints
         groundingPrompt += "=== BEHAVIORAL AND FORMATTING CONSTRAINTS ===\n";
         groundingPrompt += "- The \"No Technical Jargon\" Rule: You must NEVER mention technical or developmental terms under any circumstances, including but not limited to: \"raw JSON\", \"scraped databases\", \"API payloads\", \"web crawlers\", \"HTML tags\", \"Nostr events\", or \"relays\".\n";
         groundingPrompt += "- The \"Natural Voice\" Rule: You must speak naturally, directly, and conversationally, as if you naturally possess this live, up-to-date knowledge.\n";
         groundingPrompt += "- The \"Complete Answer Requirement\": You must construct a complete, detailed, and direct answer using the provided crawled web context. You must never output refusal phrases such as 'I could not find the answer', 'the context does not say', 'the data is missing', or 'I don't know'. Use the provided specifications and text to answer the query fully and directly.\n";
 
-        // Specification 1: Language Constraint dynamic rule integration inside grounding constraints checklist
         const targetLanguage = localStorage.getItem("puter_target_language") || "";
         const nativeLanguage = getNativeLanguageName(targetLanguage);
         if (targetLanguage) {
@@ -2174,9 +2152,6 @@
         }
         groundingPrompt += "\n";
 
-        // =========================================================================
-        // NEW: PATHWAY ROUTING BRANCH: PUTER VS NATIVE GEMINI IN AUTO MODE
-        // =========================================================================
         if (activeProvider === "Gemini") {
             const modelId = globalSelectedModel;
             const msgId = "gemini-" + Date.now() + "_" + Math.floor(Math.random() * 1000000);
@@ -2224,7 +2199,6 @@
             finalUserQueryText += `\n\n[System Rule: Respond strictly in ${scriptName} script]`;
         }
 
-        // Encapsulate structured system prompt and anchored user query into roles arrays
         const messagesArray = [
             { role: "system", content: groundingPrompt },
             { role: "user", content: finalUserQueryText }
@@ -2235,16 +2209,14 @@
             updateLoaderCardText(loaderId, "AI is synthesizing web findings...");
 
             if (window.AndroidInterface) {
-                window.AndroidInterface.logDiagnostic("Delivering grounding payload to Puter completions pipeline. Model: " + activeModel, "native");
+                window.AndroidInterface.logDiagnostic("Delivering grounding grounding payload to Puter completions pipeline. Model: " + activeModel, "native");
             }
 
-            // Standardize RAG output as messages array to avoid system-message proxy omissions
             const streamResp = await puter.ai.chat(messagesArray, {
                 model: activeModel,
                 stream: true
             });
 
-            // Strip the diagnostic loaders, converting card back to standard chat bubble
             const loaderTextEl = document.getElementById(`loader-indicator-text-${loaderId}`);
             if (loaderTextEl) loaderTextEl.remove();
 
@@ -2261,7 +2233,6 @@
                 }
             }
 
-            // Persist the synthesized conversation context back to session history
             chatHistory.push({sender: "Bot", text: fullBotText, id: `msg-${loaderId}`, files: []});
             localStorage.setItem('puter_chat_history_' + currentSessionId, JSON.stringify(chatHistory));
 
@@ -2278,32 +2249,23 @@
         }
     }
 
-    /**
-     * Intercepts messages in Auto Mode, handles programmatic WebSockets,
-     * signs queries, and subscribes for crawled responses.
-     * Note: Watchdog timeout removed. Implemented persistent polling fallback instead.
-     */
     async function executeAutoModeQuery(fromVoice, queryText) {
         const queryTimestamp = Math.floor(Date.now() / 1000);
         const input = document.getElementById('puterChatInput');
         let wakeupGuardTimeout; 
-        let pollInterval; // Reference tracker to dispose of interval gracefully
+        let pollInterval; 
 
-        // Clean user input textarea immediately
         input.value = "";
         handleInput();
 
-        // Render User bubble locally
         appendChat("User", queryText, false, []);
 
-        // Step A: Append loader card to prevent visual locks
         const loaderId = Date.now() + "_" + Math.floor(Math.random() * 1000000);
         const log = document.getElementById('puterChatLog');
         const div = document.createElement('div');
         div.className = "message bot-message";
         div.id = `msg-${loaderId}`;
 
-        // Dynamic Loader Pointer Listeners with Micro-movement Cancellations
         let pressTimer;
         let startX, startY;
         div.onpointerdown = (e) => { 
@@ -2347,7 +2309,6 @@
         log.appendChild(div);
         window.scrollTo(0, document.body.scrollHeight);
 
-        // Fetch existing entries before running query to isolate new inbox payloads
         const existingIds = new Set();
         try {
             if (window.AndroidInterface && window.AndroidInterface.getScrapedProducts) {
@@ -2361,7 +2322,6 @@
             console.error("Error reading initial products:", e);
         }
 
-        // Step B: Build, Sign and Broadcast search query over Nostr
         try {
             if (!window.AndroidInterface) {
                 updateLoaderCardText(loaderId, "Interface lost. Executing standard fallback...");
@@ -2379,7 +2339,6 @@
                 return;
             }
 
-            // BIP-340 Key Translation (translates npub1 Bech32 string format to 64-char Hex format)
             let pubkeyHex = rawPubkey;
             if (rawPubkey.startsWith("npub1")) {
                 try {
@@ -2400,16 +2359,12 @@
             updateLoaderCardText(loaderId, "Establishing socket connection to relay...");
             const tempSocket = new WebSocket(relayUrl);
 
-            // ACTIVE INBOX POLLING CHECK (Second Priority):
-            // Runs checks at non-blocking intervals to process payloads directly matching key attributes.
-            // The connection is never closed early, so it does not interfere with standard user operations.
             pollInterval = setInterval(() => {
                 try {
                     if (window.AndroidInterface && window.AndroidInterface.getScrapedProducts) {
                         const dbJson = window.AndroidInterface.getScrapedProducts();
                         const products = JSON.parse(dbJson || "[]");
 
-                        // Match against records added strictly after search initialization
                         const newProducts = products.filter(p => {
                             const id = p.scraped_id || (p.metadata && p.metadata.url);
                             return id && !existingIds.has(id);
@@ -2423,7 +2378,7 @@
                             });
 
                             if (matched.length === 0 && newProducts.length > 0) {
-                                matched = newProducts; // default fallback
+                                matched = newProducts; 
                             }
 
                             if (matched.length > 0) {
@@ -2441,7 +2396,7 @@
                 } catch (pollErr) {
                     console.error("Poller inbox check exception:", pollErr);
                 }
-            }, 2500); // Check every 2.5 seconds
+            }, 2500); 
 
             tempSocket.onopen = async () => {
                 window.AndroidInterface.nativeLog("Socket connected. Broadcasting signed query event...", "native");
@@ -2471,7 +2426,6 @@
                     content: queryText
                 };
 
-                // Request cryptographic signature natively via Java Bridge using secp256k1
                 const sig = window.AndroidInterface.signNostrEvent(JSON.stringify(unsignedEvent));
                 if (!sig) {
                     clearInterval(pollInterval);
@@ -2488,7 +2442,6 @@
                     sig: sig
                 };
 
-                // establish the 5-second lazy wake-up guard
                 wakeupGuardTimeout = setTimeout(() => {
                     if (window.AndroidInterface && window.AndroidInterface.wakeUpKiwi) {
                         window.AndroidInterface.nativeLog("Extension connection check failed (5s elapsed). Dispatching native wake-up...", "warning");
@@ -2497,11 +2450,9 @@
                     }
                 }, 5000);
 
-                // Publish Event
                 tempSocket.send(JSON.stringify(["EVENT", signedEvent]));
                 window.AndroidInterface.nativeLog("Signed query published successfully. ID: " + eventId, "native");
 
-                // Subscribe to scraped event containing extracted result JSONs matching query timestamp
                 updateLoaderCardText(loaderId, "Waiting for extension crawl response...");
                 const reqFrame = ["REQ", "auto_mode_sub", {
                     kinds: [1],
@@ -2522,10 +2473,9 @@
                         if (content) {
                             if (incomingEvent.created_at <= queryTimestamp) {
                                 window.AndroidInterface.nativeLog("Ignoring stale cached replay event ID: " + incomingEvent.id.substring(0, 8) + " (created_at: " + incomingEvent.created_at + " <= queryTimestamp: " + queryTimestamp + ")", "warning");
-                                return; // Keep loop active
+                                return; 
                             }
 
-                            // Clean loop monitors
                             clearInterval(pollInterval);
                             if (wakeupGuardTimeout) {
                                 clearTimeout(wakeupGuardTimeout);
@@ -2543,7 +2493,6 @@
 
                             tempSocket.close();
 
-                            // Trigger in-memory prompt generation
                             await executeAutoModeRAG(queryText, content, loaderId);
                         }
                     }
@@ -2555,7 +2504,6 @@
 
             tempSocket.onerror = (err) => {
                 window.AndroidInterface.nativeLog("Relay socket communication experienced a network error. Poller fallback checks continue...", "error");
-                // Keeps poller checking active without forced fallbacks
             };
 
         } catch (setupError) {
@@ -2572,10 +2520,6 @@
         }
     }
 
-    // =========================================================================
-    // NEW: DIRECT NATIVE GEMINI API INTEGRATION SENDERS
-    // =========================================================================
-
     async function executeNativeGeminiSend(promptText, files) {
         const apiKey = window.AndroidInterface ? window.AndroidInterface.getGeminiApiKey() : localStorage.getItem("gemini_user_api_key");
         const modelId = globalSelectedModel;
@@ -2583,7 +2527,6 @@
         const useSearch = window.AndroidInterface ? (window.AndroidInterface.getGeminiGrounding() === "search") : false;
         const voiceName = window.AndroidInterface ? (window.AndroidInterface.getGeminiVoice ? window.AndroidInterface.getGeminiVoice() : localStorage.getItem("gemini_user_voice")) : "Puck";
 
-        // WebSocket Live Protocol Gateway Redirect Loop
         const isLiveModel = modelId.includes("live") || modelId.includes("native-audio") || modelId.includes("exp");
 
         if (isLiveModel) {
@@ -2591,7 +2534,6 @@
                 alert("Please configure a valid Gemini Access API key first in Settings.");
                 return;
             }
-            // Check if socket is already connected or in a handshake sequence to block duplicates
             if (liveWs && (liveWs.readyState === WebSocket.OPEN || liveWs.readyState === WebSocket.CONNECTING)) {
                 if (liveWs.readyState === WebSocket.OPEN) {
                     sendLiveTextQuery(promptText, files);
@@ -2696,7 +2638,6 @@
         }
     }
 
-    // Global callback cache to process streaming chunk characters
     let activeGeminiBuffer = "";
     let braceCount = 0;
     let startIndex = -1;
@@ -2802,7 +2743,6 @@
                 textTranscript = textTranscript.trim();
 
                 if (base64Audio) {
-                    // PCM WAV encapsulation execution
                     const wavBuffer = pcmToWav(base64ToArrayBuffer(base64Audio), 24000, 1, 16);
                     const blob = new Blob([wavBuffer], { type: "audio/wav" });
                     const audioUrl = URL.createObjectURL(blob);
@@ -3142,7 +3082,7 @@
       }
     }
 
-    // Specification 1: Language target key input hydration
+    // Specification 1: Language Target Key Input hydration
     function handleLanguageInput(value) {
         const cleanedValue = value.trim();
         if (cleanedValue) {
@@ -3311,7 +3251,7 @@
                 setup: {
                     model: "models/" + modelId,
                     generationConfig: {
-                        responseModalalities: ["AUDIO"],
+                        responseModalities: ["AUDIO"],
                         speechConfig: {
                             voiceConfig: {
                                 prebuiltVoiceConfig: {
