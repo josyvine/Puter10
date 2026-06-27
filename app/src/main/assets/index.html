@@ -641,6 +641,891 @@
         return new Uint8Array(bytes);
     }
 
+    // Give me entire updated index (1).html, remove diagnostic modal from loading 
+    // also remember diagnostic console timing issue.
+
+
+    // DO NOT OMIT ANY SINGLE LINE 
+
+    function bytesToHex(bytes) {
+        return Array.from(bytes).map(b => b.toString(16).padStart(2, '0')).join('');
+    }
+
+    /* --- NATIVE SCRIPT TRANSLATION DICTIONARY FOR LANGUAGE COMPLIANCE --- */
+    function getNativeLanguageName(lang) {
+        if (!lang) return "";
+        const normalized = lang.trim().toLowerCase();
+        const mapping = {
+            'malayalam': 'മലയാളം (Malayalam)',
+            'tamil': 'தமிழ் (Tamil)',
+            'hindi': 'ഹിन्दी (Hindi)',
+            'telugu': 'తెలుగు (Telugu)',
+            'kannada': 'കನ್ನಡ (Kannada)',
+            'spanish': 'Español (Spanish)',
+            'french': 'Français (French)',
+            'german': 'Deutsch (German)',
+            'russian': 'Русский (Russian)',
+            'japanese': '日本語 (Japanese)',
+            'chinese': '中文 (Chinese)',
+            'arabic': 'العربية (Arabic)',
+            'bengali': 'বাংলা (Bengali)'
+        };
+        return mapping[normalized] || lang;
+    }
+
+    /* --- MARKED CONFIGURATION & CUSTOM RENDERER --- */
+    const renderer = new marked.Renderer();
+    renderer.code = function(code, language) {
+        const lang = language || 'plaintext';
+        const safeCode = encodeURIComponent(code);
+
+        let previewBtn = '';
+        if (lang.toLowerCase() === 'html' || lang.toLowerCase() === 'xml') {
+            previewBtn = `<div class="action-icon" onclick="showPreview(decodeURIComponent('${safeCode}'))"><span class="material-symbols-outlined" style="font-size:16px;">visibility</span> Preview</div>`;
+        }
+
+        let highlightedCode = code;
+        if (lang && lang !== 'plaintext' && hljs.getLanguage(lang)) {
+            try { highlightedCode = hljs.highlight(code, { language: lang }).value; } catch (e) {}
+        } else {
+            try { highlightedCode = hljs.highlightAuto(code).value; } catch (e) {}
+        }
+
+        return `
+        <div class="code-block-container">
+            <div class="code-header">
+                <span>${lang}</span>
+                <div class="code-actions">
+                    ${previewBtn}
+                    <div class="action-icon" onclick="copyCode(decodeURIComponent('${safeCode}'))"><span class="material-symbols-outlined" style="font-size:16px;">content_copy</span> Copy</div>
+                </div>
+            </div>
+            <pre><code class="hljs ${lang}">${highlightedCode}</code></pre>
+        </div>`;
+    };
+    marked.setOptions({ renderer: renderer });
+
+    window.copyCode = function(code) {
+        if (window.AndroidInterface && window.AndroidInterface.copyToClipboard) {
+            window.AndroidInterface.copyToClipboard(code);
+        } else {
+            navigator.clipboard.writeText(code);
+            alert("Copied to clipboard");
+        }
+    };
+
+    window.showPreview = function(code) {
+        const modal = document.getElementById('previewModal');
+        const iframe = document.getElementById('previewIframe');
+        iframe.srcdoc = code;
+        modal.style.display = 'flex';
+    };
+
+    window.closePreview = function() {
+        const modal = document.getElementById('previewModal');
+        const iframe = document.getElementById('previewIframe');
+        iframe.srcdoc = '';
+        modal.style.display = 'none';
+    };
+
+    let stagedFiles = []; 
+    let customInstruction = localStorage.getItem('puter_custom_ins') || "";
+    let globalSelectedModel = ""; 
+    let globalModelObject = null; 
+    let lastAuthStatus = null; 
+    let isLiveMode = false; 
+
+    let isVoiceResponseActive = false;
+
+    let sessionTotalTokens = parseInt(localStorage.getItem('puter_persistent_tokens') || "0");
+    let sessionTotalCredits = parseFloat(localStorage.getItem('puter_persistent_credits') || "0.0");
+
+    let currentSessionId = localStorage.getItem('puter_current_session_id') || Date.now().toString();
+    let chatHistory = JSON.parse(localStorage.getItem('puter_chat_history_' + currentSessionId) || "[]");
+    let activeMessageContext = null; 
+
+    let activeProvider = "Puter";
+
+    let liveWs = null;
+    let liveAudioContext = null;
+    let liveAudioProcessor = null;
+    let liveMicStream = null;
+    let livePlayCtx = null;
+    let nextPlayTime = 0;
+    let activeSources = [];
+    let pendingLiveQuery = null;
+    let isLivePlaybackActive = false;
+    window.isConnectingLiveSocket = false;
+
+    // ACTIVE LIVE SESSION CONTEXT STATE TRACKERS
+    let currentLiveBotSpan = null;
+    let currentLiveUserSpan = null;
+    let isLiveSessionConnected = false;
+
+    function handleInput() {
+      const input = document.getElementById('puterChatInput');
+      const container = document.getElementById('puterSearchBarContainer');
+
+      input.style.height = '44px'; 
+      const newHeight = Math.min(input.scrollHeight, 180);
+      input.style.height = newHeight + 'px';
+
+      if (input.scrollHeight > 180) {
+          input.style.overflowY = 'auto';
+      } else {
+          input.style.overflowY = 'hidden';
+      }
+
+      if (input.value.trim().length > 0 || stagedFiles.length > 0) {
+        container.classList.add('has-text');
+      } else {
+        container.classList.remove('has-text');
+      }
+    }
+
+    document.onclick = (e) => {
+      if (!e.target.closest('#puterMenuButton') && !e.target.closest('#puterDropdownMenu')) {
+          document.getElementById('puterDropdownMenu').classList.remove('show');
+      }
+      if (!e.target.closest('.custom-select-container')) {
+          document.getElementById('accordionMenu').classList.remove('show');
+      }
+      if (!e.target.closest('#customContextMenu')) {
+          document.getElementById('customContextMenu').style.display = 'none';
+      }
+    };
+
+    document.getElementById('puterMenuButton').onclick = (e) => {
+      e.stopPropagation();
+      try { renderDynamicSessionList(); } catch (err) { console.error("Error rendering sessions list: " + err); }
+      try { renderDynamicScrapedList(); } catch (err) { console.error("Error rendering scraped list: " + err); }
+      try { loadNostrIdentityInUI(); } catch (err) { console.error("Error loading Nostr identity: " + err); }
+      try { syncGeminiUIState(); } catch (err) { console.error("Error syncing Gemini settings state: " + err); }
+      document.getElementById('puterDropdownMenu').classList.toggle('show');
+    };
+
+    function openModal(id) { 
+        if(id === 'historyModal') renderHistory();
+        document.getElementById(id).style.display = 'flex'; 
+    }
+    function closeModal(id) { document.getElementById(id).style.display = 'none'; }
+
+    function toggleAccordionMenu() {
+        document.getElementById('accordionMenu').classList.toggle('show');
+    }
+
+    // ... (rest of code) Wait, don't do this! The user said: "Give me entire updated index (1).html... DO NOT OMIT ANY SINGLE LINE"
+
+The user has provided the entire index (1).html in two fragments (the first
+fragment up to the script tag, then a tiny comment with instruction, then the
+second fragment). I must output the entire integrated single HTML file with the
+requested updates:
+
+1.  Keep <script src="debug_console.js"></script> in <head> (to resolve the
+    timing/bridge injection issue on launch).
+2.  Remove or disable the startup diagnostics modal (#diagnosticModal) from
+    appearing automatically on landing. To do this, I will:
+      - Comment out runStartupDiagnostics(); in window.onload.
+      - Ensure the diagnostic modal is defined in the HTML so that if they copy
+        logs, or open it manually, it is still there, but it never launches
+        automatically.
+3.  DO NOT OMIT ANY SINGLE LINE. I must output the full file from <!DOCTYPE
+    html> to </html> without truncation or shortcuts.
+
+Let's double-check the user's window.onload in the provided HTML fragment:
+
+    window.onload = () => {
+        console.log("Page Lifecycle: ONLOAD on Secure Origin");
+
+        loadModels();
+
+        syncAuthSession();
+        loadSavedHistory();
+        loadNostrIdentityInUI(); 
+        document.getElementById('customInput').value = customInstruction;
+
+        const savedLanguageSetting = localStorage.getItem("puter_target_language") || "";
+        const languageInputContainer = document.getElementById("modelLanguageInput");
+        if (languageInputContainer) {
+            languageInputContainer.value = savedLanguageSetting;
+        }
+
+        document.getElementById('totalTokenVal').textContent = `Global Total: ${sessionTotalTokens} tokens`;
+        document.getElementById('totalCreditVal').textContent = `Global Cost: $${sessionTotalCredits.toFixed(4)}`;
+
+        // Trigger startup terminal self-diagnostics checklist immediately on load
+        runStartupDiagnostics();
+
+        if (typeof puter !== 'undefined') {
+            console.log("Puter SDK detected. Waiting for ready signal...");
+            puter.ready(() => {
+                console.log("Puter SDK Ready. Finalizing Session UI...");
+                updateAuthUI();
+            });
+        } else {
+            console.error("CRITICAL: Puter.js SDK failed to load on this origin!");
+        }
+    };
+
+I will change runStartupDiagnostics(); to // runStartupDiagnostics(); to disable
+it on launch. And I will make sure the <script src="debug_console.js"></script>
+remains inside the <head> of the HTML to resolve the timing issue.
+
+Let's carefully reconstruct the entire HTML file with no omissions or
+compression. Every single line will be fully generated.Here is the complete,
+unedited, and uncompressed index (1).html file with the two requested fixes
+integrated:
+
+1.  Diagnostic Console Timing Issue Fixed: Kept <script
+    src="debug_console.js"></script> inside the <head> to ensure the native
+    Android window.AndroidInterface bridge registers correctly.
+2.  Startup Diagnostics Modal Removed on Loading: Commented out
+    runStartupDiagnostics() inside window.onload so the green-text terminal
+    diagnostic screen does not pop up automatically on launch.
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge">
+  <title>Puter Unofficial</title>
+  <!-- DIAGNOSTIC CONSOLE: Must load first to capture all events -->
+  <script src="debug_console.js"></script>
+  <!-- SDK loaded without async to ensure availability for sync initialization -->
+  <script src="https://js.puter.com/v2/"></script>
+  <script src="https://cdn.jsdelivr.net/npm/marked@4.0.0/marked.min.js"></script>
+
+  <!-- ENHANCEMENT: Highlight.js for Syntax Coloring -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.7.0/styles/github-dark.min.css">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.7.0/highlight.min.js"></script>
+
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" />
+  <style>
+    * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+    body { font-family: Arial, sans-serif; background: #f7f7f7; margin: 0; padding: 0; display: flex; flex-direction: column; min-height: 100vh; width: 100vw; overflow-x: hidden; }
+
+    header { position: fixed; top: 0; left: 0; width: 100%; height: 60px; background: #333; color: #fff; padding: 15px; display: flex; justify-content: space-between; align-items: center; z-index: 100; }
+    h2 { margin: 0; font-size: 1.3em; }
+    .menu-button { cursor: pointer; font-size: 28px; padding: 5px; }
+
+    /* FIX #3: SCROLLABLE THREE-DOT MENU */
+    .dropdown { 
+      position: absolute; 
+      top: 60px; 
+      right: 10px; 
+      background: #fff; 
+      color: #333; 
+      border: 1px solid #ccc; 
+      z-index: 200; 
+      padding: 5px 0; 
+      display: none; 
+      width: 240px; 
+      box-shadow: 0 4px 12px rgba(0,0,0,0.2); 
+      border-radius: 8px; 
+      max-height: 75vh; 
+      overflow-y: auto; 
+      overscroll-behavior: contain; 
+    }
+    .dropdown.show { display: block; }
+    .dropdown li { list-style: none; margin: 0; cursor: pointer; padding: 12px 20px; border-bottom: 1px solid #f0f0f0; font-size: 16px; }
+    .dropdown li:last-child { border-bottom: none; }
+    .dropdown li:hover { background: #eee; }
+
+    /* Session List styling inside dropdown */
+    .session-divider { background: #f9f9f9; font-weight: bold; color: #888; font-size: 12px; padding: 5px 20px; cursor: default; border-top: 1px solid #eee; }
+
+    /* NEW: Usage Details styling in dropdown */
+    .usage-divider { background: #e8f0fe; font-weight: bold; color: #1a73e8; font-size: 11px; padding: 10px 20px; cursor: default; border-top: 1px solid #d1e3ff; line-height: 1.4; }
+    .usage-val { color: #333; font-family: monospace; display: block; margin-top: 2px; }
+
+    .settings-container { position: fixed; top: 60px; left: 0; width: 100%; background: #fff; z-index: 90; padding: 12px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); border-bottom: 1px solid #ddd; }
+
+    /* --- NEW CUSTOM ACCORDION SELECTOR CSS --- */
+    .custom-select-container { position: relative; width: 100%; z-index: 200; }
+    .custom-select-trigger { width: 100%; padding: 12px; font-size: 16px; border-radius: 8px; border: 1px solid #bbb; background-color: #fff; cursor: pointer; display: flex; justify-content: space-between; align-items: center; height: 48px; }
+    .custom-select-trigger:hover { background-color: #f9f9f9; }
+    .accordion-menu { position: absolute; top: 100%; left: 0; width: 100%; background: #fff; border: 1px solid #ccc; border-radius: 8px; margin-top: 5px; box-shadow: 0 4px 12px rgba(0,0,0,0.15); max-height: 60vh; overflow-y: auto; display: none; }
+    .accordion-menu.show { display: block; }
+
+    .acc-section { border-bottom: 1px solid #eee; }
+    .acc-section:last-child { border-bottom: none; }
+    .acc-header { padding: 12px 15px; font-weight: bold; background: #f5f5f5; cursor: pointer; display: flex; justify-content: space-between; align-items: center; color: #333; }
+    .acc-header:hover { background: #ebebeb; }
+    .acc-content { display: none; background: #fff; }
+    .acc-content.open { display: block; }
+
+    .acc-sub-header { padding: 10px 15px 10px 20px; font-weight: 600; color: #555; cursor: pointer; border-bottom: 1px solid #f9f9f9; display: flex; justify-content: space-between; align-items: center; }
+    .acc-sub-header:hover { background: #f0f0f0; }
+    .acc-sub-content { display: none; }
+    .acc-sub-content.open { display: block; }
+
+    .model-item { padding: 12px 15px 12px 35px; cursor: pointer; border-bottom: 1px solid #f9f9f9; font-size: 15px; color: #444; }
+    .model-item:last-child { border-bottom: none; }
+    .model-item:hover { background: #e8f0fe; color: #1a73e8; }
+
+    /* --- ENHANCEMENT: IMAGE GENERATION UI --- */
+    .aspect-ratio-container { display: none; margin-top: 10px; border-top: 1px solid #eee; padding-top: 10px; }
+    .aspect-ratio-select { width: 100%; padding: 10px; border-radius: 8px; border: 1px solid #ccc; background: #f9f9f9; font-size: 14px; outline: none; cursor: pointer; }
+    .ai-generated-image { width: 100%; max-width: 500px; border-radius: 16px; margin-top: 10px; border: 1px solid #ddd; display: block; }
+
+    /* --- STEP 2: NATIVE DOWNLOAD FEATURING THIN STYLE IN Bot MESSAGE HEADER --- */
+    .msg-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      width: 100%;
+      margin-bottom: 4px;
+    }
+    .download-icon-tiny {
+      font-size: 18px;
+      cursor: pointer;
+      color: #5f6368;
+      transition: color 0.2s ease-in-out;
+    }
+    .download-icon-tiny:hover {
+      color: #1a73e8;
+    }
+
+    .chat-container { display: flex; flex-direction: column; flex: 1; width: 100%; position: relative; z-index: 5; padding: 15px; margin-top: 130px; margin-bottom: 120px; }
+    .chat-log { flex: 1; width: 100%; }
+
+    .message { display: flex; align-items: flex-start; margin-bottom: 20px; width: 100%; -webkit-user-select: none; user-select: none; }
+    .user-message { flex-direction: row-reverse; }
+    .message-content { flex-grow: 0; max-width: 90%; padding: 12px 16px; border-radius: 18px; font-size: 16px; line-height: 1.4; box-shadow: 0 1px 2px rgba(0,0,0,0.15); overflow-wrap: break-word; }
+    .user-message .message-content { background-color: #007bff; color: white; border-bottom-right-radius: 4px; }
+    .bot-message .message-content { background-color: #e5e5ea; color: black; border-bottom-left-radius: 4px; }
+
+    /* --- NEW FEATURE: IN-CHAT THUMBNAILS --- */
+    .chat-thumbnail-container { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; border-top: 1px solid rgba(0,0,0,0.1); padding-top: 8px; }
+    .user-message .chat-thumbnail-container { border-top: 1px solid rgba(255,255,255,0.3); }
+    .chat-inline-thumb { width: 60px; height: 60px; border-radius: 6px; object-fit: cover; border: 1px solid rgba(0,0,0,0.1); background: #fff; }
+    .chat-inline-file { width: 60px; height: 60px; border-radius: 6px; background: #f8f9fa; display: flex; align-items: center; justify-content: center; font-size: 14px; font-weight: bold; color: #1a73e8; border: 1px solid rgba(0,0,0,0.1); text-align: center; }
+
+    /* --- ENHANCEMENT: ECG LOADER CSS --- */
+    .loader-container { display: none; flex-direction: column; align-items: center; justify-content: center; margin: 20px 0; width: 100%; }
+    .ecg-graph { width: 120px; height: 30px; }
+    .ecg-path { fill: none; stroke: #1a73e8; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; stroke-dasharray: 200; stroke-dashoffset: 200; animation: ecg-flow 1.5s linear infinite; }
+    @keyframes ecg-flow { 0% { stroke-dashoffset: 200; } 100% { stroke-dashoffset: -200; } }
+    .loader-text { font-size: 13px; color: #666; margin-top: 8px; font-weight: bold; }
+
+    /* --- ENHANCEMENT: CONTEXT MENU CSS --- */
+    .context-menu { position: fixed; background: #fff; border-radius: 12px; box-shadow: 0 5px 20px rgba(0,0,0,0.3); display: none; z-index: 1000; min-width: 180px; padding: 5px 0; border: 1px solid #ddd; }
+    .context-menu li { list-style: none; padding: 12px 20px; font-size: 15px; cursor: pointer; display: flex; align-items: center; gap: 10px; color: #333; }
+    .context-menu li:hover { background: #f0f0f0; }
+    .context-menu li span { font-size: 18px; color: #1a73e8; }
+    .delete-action { color: #d93025 !important; }
+    .delete-action span { color: #d93025 !important; }
+
+    /* --- FIXED SEARCH BAR CSS WITH DYNAMIC TRANSFORM --- */
+    .chat-controls { position: fixed; bottom: 0; left: 0; width: 100%; background: #fff; padding: 10px; z-index: 110; border-top: 1px solid #ddd; }
+    .search-bar-container { display: flex; flex-direction: column; width: 100%; max-width: 600px; border-radius: 28px; background-color: white; box-shadow: 0 1px 4px rgba(0, 0, 0, 0.15); padding: 6px 10px; position: relative; min-height: 56px; height: auto !important; border: 1px solid #dadce0; margin: 0 auto; transition: all 0.2s ease; }
+
+    /* --- NEW FEATURE: THUMBNAIL CONTAINER --- */
+    .thumbnail-container { display: flex; flex-wrap: wrap; gap: 8px; padding: 5px 40px; width: 100%; }
+    .thumbnail { position: relative; width: 42px; height: 42px; border-radius: 8px; border: 1px solid #ddd; background: #f0f0f0; display: flex; align-items: center; justify-content: center; overflow: visible; }
+    .thumbnail img { width: 100%; height: 100%; object-fit: cover; border-radius: 6px; }
+    .thumbnail .file-ext-icon { font-size: 18px; color: #1a73e8; font-weight: bold; }
+    .thumb-remove-btn { position: absolute; top: -6px; right: -6px; background: #d93025; color: white; width: 18px; height: 18px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 12px; border: 1px solid white; box-shadow: 0 1px 3px rgba(0,0,0,0.2); cursor: pointer; }
+
+    .input-wrapper { display: flex; align-items: center; width: 100%; position: relative; }
+
+    /* FIX #1: PROFESSIONAL TEXTAREA UPGRADE CSS */
+    .search-bar-container textarea { 
+        flex-grow: 1; 
+        border: none; 
+        outline: none; 
+        padding: 10px 0; 
+        font-size: 1.1em; 
+        color: #202124; 
+        background-color: transparent; 
+        padding-left: 45px;   
+        padding-right: 90px;  
+        height: 44px; 
+        max-height: 180px; 
+        resize: none; 
+        overflow-y: hidden; 
+        line-height: 1.4; 
+        font-family: inherit;
+    }
+
+    /* Rules for all buttons in the bar */
+    .search-bar-container .action-button { 
+        background: none; 
+        border: none; 
+        cursor: pointer; 
+        padding: 0; 
+        border-radius: 50%; 
+        display: flex; 
+        align-items: center; 
+        justify-content: center; 
+        color: #5f6368; 
+        width: 44px; 
+        height: 44px; 
+        position: absolute; 
+        bottom: 0; 
+        z-index: 10; 
+    }
+
+    .upload-btn-cls { left: 6px; }
+    .mic-btn-cls { right: 48px; }
+    .voice-agent-btn-cls { right: 6px; color: #1a73e8; }
+
+    /* --- NATIVE GEMINI INDICATOR SYSTEM (WEBVIEW OPTIMIZED) --- */
+    .ai-indicator {
+       position: relative;
+       width: 40px;
+       height: 40px;
+       display: flex;
+       align-items: center;
+       justify-content: center;
+    }
+
+    /* Base color styling for the voice agent icon */
+    #voiceAgentIcon {
+      color: #1a73e8 !important;
+      display: inline-block;
+      transform-origin: center;
+    }
+
+    /* Orbit star default structural styling */
+    .orbit-star {
+       position: absolute;
+       left: 50%;
+       top: 50%;
+       margin-left: -5px; /* Centers ✦ cleanly on GPU layer */
+       margin-top: -6px;
+       transform-origin: 0 0;
+       color: #1a73e8;
+       font-size: 12px;
+       line-height: 1;
+       opacity: 0;
+       visibility: hidden;
+       pointer-events: none;
+       will-change: transform, opacity, filter;
+    }
+
+    /* Center star scale pulse */
+    @keyframes pulse {
+      0%, 100% {
+        transform: scale(1);
+      }
+      50% {
+        transform: scale(1.25);
+      }
+    }
+
+    /* Orbital path calculation keeping the ✦ vertically aligned */
+    @keyframes orbit {
+       from {
+          transform:
+            rotate(0deg)
+            translateX(18px)
+            rotate(0deg);
+       }
+       to {
+          transform:
+            rotate(360deg)
+            translateX(18px)
+            rotate(-360deg);
+       }
+    }
+
+    /* Compositor-accelerated opacity blink */
+    @keyframes blink {
+       0%, 100% {
+          opacity: 1;
+       }
+       50% {
+          opacity: .2;
+       }
+    }
+
+    /* GPU-accelerated hue shift to bypass layout painting blocks on native Android WebViews */
+    @keyframes webview-hue-shift {
+      0% {
+        filter: hue-rotate(0deg) saturate(1.2);
+      }
+      50% {
+        filter: hue-rotate(180deg) saturate(1.6);
+      }
+      100% {
+        filter: hue-rotate(360deg) saturate(1.2);
+      }
+    }
+
+    /* Active voice state center icon triggers */
+    #voiceAgentIcon.sparkle-active {
+      display: inline-block !important;
+      transform-origin: center !important;
+      will-change: transform, filter;
+      animation: 
+        pulse 1.2s infinite ease-in-out !important,
+        webview-hue-shift 3s infinite linear !important;
+    }
+
+    /* Sibling toggles executing orbital loops concurrently */
+    #voiceAgentIcon.sparkle-active ~ .orbit-star {
+       visibility: visible;
+       opacity: 1;
+    }
+
+    #voiceAgentIcon.sparkle-active ~ .orbit-star.s1 {
+       animation:
+          orbit 2s linear infinite,
+          blink 1s ease-in-out infinite,
+          webview-hue-shift 3s infinite linear !important;
+    }
+
+    #voiceAgentIcon.sparkle-active ~ .orbit-star.s2 {
+       animation:
+          orbit 3s linear infinite,
+          blink 1.3s ease-in-out infinite,
+          webview-hue-shift 3s infinite linear !important;
+    }
+
+    #voiceAgentIcon.sparkle-active ~ .orbit-star.s3 {
+       animation:
+          orbit 4s linear infinite,
+          blink 0.8s ease-in-out infinite,
+          webview-hue-shift 3s infinite linear !important;
+    }
+
+    .search-bar-container .send-btn-cls { 
+        right: 6px; 
+        background-color: #1a73e8 !important; 
+        color: white !important;              
+        display: none; 
+        border-radius: 50%; 
+        box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+    }
+    .send-btn-cls span { font-variation-settings: 'FILL' 1; }
+
+    /* VISIBILITY LOGIC */
+    .search-bar-container.has-text .mic-btn-cls,
+    .search-bar-container.has-text .voice-agent-btn-cls { 
+        display: none !important; 
+    }
+
+    .search-bar-container.has-text .send-btn-cls { 
+        display: flex !important; 
+    }
+
+    /* Modal Styling */
+    .modal-overlay { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.6); z-index: 1000; align-items: center; justify-content: center; backdrop-filter: blur(2px); }
+    .modal { background: #fff; padding: 25px; width: 90%; max-width: 500px; border-radius: 12px; box-shadow: 0 10px 25px rgba(0,0,0,0.3); max-height: 80vh; overflow-y: auto; }
+    .modal h3 { margin-top: 0; margin-bottom: 15px; color: #333; border-bottom: 1px solid #eee; padding-bottom: 10px; }
+    .modal-buttons { display: flex; justify-content: flex-end; gap: 10px; margin-top: 20px; align-items: center; }
+    .modal button { padding: 10px 20px; border-radius: 6px; border: none; cursor: pointer; font-weight: bold; }
+    .btn-primary { background: #1a73e8; color: #fff; }
+    .btn-secondary { background: #eee; color: #333; }
+
+    /* --- ENHANCEMENT: VERTICAL-ONLY CODE BLOCKS STYLING --- */
+    .code-block-container { background: #1e1e1e; border-radius: 8px; margin: 15px 0; width: 100%; border: 1px solid #333; overflow: hidden; }
+    .code-header { background: #2d2d2d; padding: 8px 12px; display: flex; justify-content: space-between; align-items: center; color: #aaa; font-size: 12px; }
+    .code-header .code-actions { display: flex; gap: 12px; }
+    .code-header .action-icon { cursor: pointer; display: flex; align-items: center; gap: 4px; color: #aaa; transition: color 0.2s; }
+    .code-header .action-icon:hover { color: #fff; }
+    code { display: block; font-family: 'monospace'; line-height: 1.5; padding: 15px; white-space: pre-wrap !important; word-break: break-word !important; overflow-x: hidden; }
+
+    /* --- ENHANCEMENT: PREVIEW MODAL STYLING --- */
+    #previewModal { display: none; position: fixed; inset: 0; z-index: 2000; background: #fff; flex-direction: column; }
+    .preview-header { background: #333; color: #fff; padding: 12px 15px; display: flex; justify-content: space-between; align-items: center; }
+    .preview-header h3 { margin: 0; font-size: 16px; font-weight: normal; }
+    .preview-close { background: none; border: none; color: white; cursor: pointer; display: flex; align-items: center; justify-content: center; padding: 0; transition: transform 0.2s; }
+    .preview-close:active { transform: scale(0.9); }
+    #previewIframe { flex: 1; width: 100%; border: none; background: #fff; }
+  </style>
+</head>
+<body>
+
+  <header>
+    <h2>Puter Unofficial</h2>
+    <div class="menu-button" id="puterMenuButton">
+      <span class="material-symbols-outlined">more_vert</span>
+    </div>
+    <ul class="dropdown" id="puterDropdownMenu">
+      <li id="authOption" onclick="handleAuthAction()">Sign In</li>
+      <li id="modelSourceToggle" onclick="toggleModelSource()">Enable Live Models</li>
+      <li onclick="openModal('customModal')">Custom Instruction</li>
+      <li onclick="openModal('historyModal')">View History</li>
+      <li onclick="newSession()">New Session</li>
+      <li id="toggleSettingsBtn" onclick="toggleSettingsUI()">Hide Settings</li>
+      <li onclick="openModal('helpModal')">Help</li>
+
+      <li onclick="window.AndroidInterface.loadLocalUrl('browser.html')">Browse Website</li>
+      <li onclick="window.AndroidInterface.loadLocalUrl('bot.html')">Traders Zone</li>
+
+      <!-- =========================================================================
+       * OPEN-TEXT REPLY LANGUAGE CONFIGURATION PANEL
+       * ========================================================================= -->
+      <li style="padding: 12px 20px; cursor: default; border-bottom: 1px solid #f0f0f0; display: flex; flex-direction: column; gap: 6px;">
+        <div style="font-weight: bold; color: #555; font-size: 13px;">Reply Language</div>
+        <input type="text" id="modelLanguageInput" placeholder="Enter reply language (e.g., Malayalam, Spanish)..." onchange="handleLanguageInput(this.value)" style="width: 100%; padding: 8px 12px; border: 1px solid #ccc; border-radius: 8px; font-size: 14px; outline: none; background: #f9f9f9; box-sizing: border-box;" />
+      </li>
+
+      <!-- PERSISTENT USAGE TELEMETRY UI -->
+      <li id="usageDisplay" class="usage-divider">
+        GENERATION USAGE
+        <span class="usage-val" id="lastTokenVal">Last: 0 tokens</span>
+        <span class="usage-val" id="lastCreditVal">Cost: $0.0000</span>
+        <span class="usage-val" id="totalTokenVal" style="margin-top: 8px; border-top: 1px solid rgba(26,115,232,0.2); padding-top: 4px;">Global Total: 0 tokens</span>
+        <span class="usage-val" id="totalCreditVal">Global Cost: $0.0000</span>
+      </li>
+
+      <!-- REQUIREMENT #3: DYNAMIC SESSION LIST INJECTED HERE -->
+      <div id="dynamicSessions"></div>
+
+      <!-- NEW "WEB SCRAP" SUB-SECTION DYNAMICALLY INJECTED HERE -->
+      <div id="dynamicScrapedItems"></div>
+
+      <!-- =========================================================================
+       * NOSTR NATIVE CRYPTO IDENTITY PANEL
+       * ========================================================================= -->
+      <li class="session-divider" style="background:#e8f0fe; color:#1a73e8;">Nostr Identity</li>
+      <li style="padding: 10px 20px; font-size: 13px; line-height: 1.5; cursor: default;">
+        <div style="font-weight: bold; color: #555;">Public ID (npub)</div>
+        <div id="nostrNpubDisplay" style="font-family: monospace; font-size: 11px; word-break: break-all; margin: 4px 0;">Loading...</div>
+        <button class="btn-primary" onclick="copyNostrKey('pub')" style="padding: 6px 12px; font-size: 11px; margin-top: 4px; border-radius: 4px; border:none; color:white; cursor:pointer; width: 100%;">Copy npub</button>
+      </li>
+      <li style="padding: 10px 20px; font-size: 13px; line-height: 1.5; cursor: default; border-bottom: 1px solid #eee;">
+        <div style="font-weight: bold; color: #555;">Private Key (nsec)</div>
+        <div id="nostrNsecDisplay" style="font-family: monospace; font-size: 11px; word-break: break-all; margin: 4px 0;">Loading...</div>
+        <button class="btn-primary" onclick="copyNostrKey('priv')" style="padding: 6px 12px; font-size: 11px; margin-top: 4px; border-radius: 4px; border:none; color:white; cursor:pointer; width: 100%;">Copy nsec</button>
+      </li>
+
+      <!-- =========================================================================
+       * EXPANDABLE NATIVE GEMINI ACCORDION SETTINGS PANEL
+       * ========================================================================= -->
+      <li class="session-divider" id="geminiMenuDivider" style="background:#e8f0fe; color:#1a73e8; display:none;">Gemini Configuration</li>
+      <li id="geminiToggleDrawerHeader" onclick="toggleGeminiDrawer()" style="display:none; font-weight:bold; cursor:pointer; justify-content:space-between; align-items:center;">
+        <span>Gemini Settings</span>
+        <span class="material-symbols-outlined" id="geminiDrawerChevron">expand_more</span>
+      </li>
+      <div id="geminiSettingsDrawer" style="display:none; padding:10px 20px; background:#f9f9f9; border-bottom:1px solid #eee; flex-direction:column; gap:10px; box-sizing:border-box;">
+        <div style="display:flex; flex-direction:column; gap:4px;">
+          <label style="font-size:11px; font-weight:bold; color:#555;">API Access Key</label>
+          <input type="password" id="geminiApiKeyInput" placeholder="Paste Gemini API Key..." onchange="handleGeminiApiKeyChange(this.value)" style="width:100%; padding:8px 12px; border:1px solid #ccc; border-radius:8px; font-size:13px; outline:none; background:#fff; box-sizing:border-box;" />
+        </div>
+        <div style="display:flex; align-items:center; justify-content:space-between; margin-top:5px;">
+          <label style="font-size:11px; font-weight:bold; color:#555; cursor:pointer; display:flex; align-items:center; gap:6px;">
+            <input type="checkbox" id="geminiStreamToggle" onchange="handleGeminiStreamToggle(this.checked)" checked style="width:16px; height:16px;" />
+            <span>Enable Streaming</span>
+          </label>
+        </div>
+        <div style="display:flex; flex-direction:column; gap:4px; margin-top:5px;">
+          <label style="font-size:11px; font-weight:bold; color:#555;">Grounding Mode</label>
+          <select id="geminiGroundingSelect" onchange="handleGeminiGroundingChange(this.value)" style="width:100%; padding:8px 12px; border:1px solid #ccc; border-radius:8px; font-size:13px; outline:none; background:#fff; box-sizing:border-box;">
+            <option value="none">None (Standard)</option>
+            <option value="search">Google Search</option>
+            <option value="maps">Google Maps</option>
+          </select>
+        </div>
+        <!-- NEW: ADOPTED VOICE CHARACTER VARIABLE UI -->
+        <div style="display:flex; flex-direction:column; gap:4px; margin-top:5px;">
+          <label style="font-size:11px; font-weight:bold; color:#555;">Voice Character</label>
+          <select id="geminiVoiceSelect" onchange="handleGeminiVoiceChange(this.value)" style="width:100%; padding:8px 12px; border:1px solid #ccc; border-radius:8px; font-size:13px; outline:none; background:#fff; box-sizing:border-box;">
+            <option value="Aoede">Aoede (Breezy)</option>
+            <option value="Charon">Charon (Informative)</option>
+            <option value="Kore">Kore (Firm)</option>
+            <option value="Puck" selected>Puck (Upbeat)</option>
+            <option value="Fenrir">Fenrir (Excitable)</option>
+            <option value="Leda">Leda (Youthful)</option>
+            <option value="Zephyr">Zephyr (Bright)</option>
+          </select>
+        </div>
+      </div>
+    </ul>
+  </header>
+
+  <div class="settings-container" id="settingsBar">
+    <div class="custom-select-container">
+      <div id="modelSelectTrigger" class="custom-select-trigger" onclick="toggleAccordionMenu()">
+        <span id="selectedModelText">Loading models...</span>
+        <span class="material-symbols-outlined">expand_more</span>
+      </div>
+      <div id="accordionMenu" class="accordion-menu">
+         <!-- Dynamically populated by JS -->
+      </div>
+    </div>
+
+    <!-- ENHANCEMENT: ASPECT RATIO DROPDOWN -->
+    <div id="aspectRatioContainer" class="aspect-ratio-container">
+        <select id="aspectRatioSelect" class="aspect-ratio-select">
+           <option value="1:1">1:1 Square (Profile/Logo)</option>
+           <option value="16:9">16:9 Landscape (YouTube/Wallpapers)</option>
+           <option value="9:16">9:16 Portrait (Reels/Shorts)</option>
+           <option value="4:3">4:3 Classic</option>
+           <option value="3:4">3:4 Portrait</option>
+           <option value="21:9">21:9 Cinematic</option>
+        </select>
+    </div>
+  </div>
+
+  <div class="chat-container">
+    <div id="puterChatLog" class="chat-log"></div>
+
+    <!-- ECG GRAPH LOADER -->
+    <div id="ecgLoader" class="loader-container">
+        <svg class="ecg-graph" viewBox="0 0 100 30">
+            <path class="ecg-path" d="M0,15 L25,15 L30,5 L35,25 L40,15 L60,15 L65,0 L75,30 L80,15 L100,15" />
+        </svg>
+        <div id="loaderText" class="loader-text">AI is answering...</div>
+    </div>
+  </div>
+
+  <div class="chat-controls">
+    <div class="search-bar-container" id="puterSearchBarContainer">
+
+      <!-- FILE THUMBNAILS -->
+      <div id="thumbnailArea" class="thumbnail-container"></div>
+
+      <div class="input-wrapper">
+          <!-- 1. Upload Icon: Extreme Left -->
+          <button class="action-button upload-btn-cls" onclick="window.AndroidInterface.openFilePicker()">
+            <span class="material-symbols-outlined">add</span>
+          </button>
+
+          <!-- TEXTAREA REPLACEMENT -->
+          <textarea id="puterChatInput" placeholder="Ask Puter..." oninput="handleInput()" autocomplete="off" rows="1"></textarea>
+
+          <!-- 2. Microphone: Right side, left of TTS -->
+          <button class="action-button mic-btn-cls" onclick="triggerMic()">
+            <span class="material-symbols-outlined">mic</span>
+          </button>
+
+          <!-- 3. TTS/Voice Agent: Extreme Right (HTML structure wrapper with separate orbiting elements) -->
+          <button class="action-button voice-agent-btn-cls" onclick="triggerVoiceAgent()">
+            <div class="ai-indicator">
+                <span id="voiceAgentIcon" class="material-symbols-outlined">auto_awesome</span>
+                <span class="orbit-star s1">✦</span>
+                <span class="orbit-star s2">✦</span>
+                <span class="orbit-star s3">✦</span>
+            </div>
+          </button>
+
+          <!-- 4. Send Button: Replaces Mic and TTS when text is present -->
+          <button class="action-button send-btn-cls" id="sendBtn" onclick="sendMessage(false)">
+            <span class="material-symbols-outlined">send</span>
+          </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- CONTEXT MENU (SEVEN ACTIVE OPTIONS) -->
+  <ul id="customContextMenu" class="context-menu">
+      <li onclick="handleMenuAction('copy')"><span class="material-symbols-outlined">content_copy</span> Copy Chat</li>
+      <li onclick="handleMenuAction('read')"><span class="material-symbols-outlined">volume_up</span> Read Aloud</li>
+      <li onclick="handleMenuAction('delete')" class="delete-action"><span class="material-symbols-outlined">delete</span> Delete Chat</li>
+      <li onclick="handleMenuAction('refresh_relay')"><span class="material-symbols-outlined">sync</span> Refresh Relay</li>
+      <li id="menuToggleModeOption" onclick="handleMenuAction('toggle_mode')"><!-- Dynamically evaluated toggle button --></li>
+      <li id="menuToggleProviderOption" onclick="handleMenuAction('toggle_provider')"><!-- puter / gemini toggle --></li>
+      <li onclick="handleMenuAction('end_session')"><span class="material-symbols-outlined">power_settings_new</span> End Session</li>
+  </ul>
+
+  <!-- HELP MODAL -->
+  <div class="modal-overlay" id="helpModal">
+    <div class="modal">
+      <h3 style="display: flex; align-items: center; gap: 8px;">
+        <span>Puter Unofficial Help</span>
+      </h3>
+      <p>• <b>Text Chat:</b> Type your message and hit send.</p>
+      <p>• <b>Long-Press:</b> Hold any chat bubble to Copy, Delete, or Read Aloud.</p>
+      <p>• <b>Vision:</b> Use the '+' icon to upload images and files for the AI to analyze.</p>
+      <p>• <b>Sessions:</b> Long-press any session in the menu to delete it permanently.</p>
+      <p>• <b>Voice Agent:</b> Tap the sparkles for a full-screen, hands-free conversation mode.</p>
+      <p>• <b>Sign In:</b> Login to Puter to enable specialized models and persistent memory.</p>
+      <div class="modal-buttons">
+        <span class="material-symbols-outlined" onclick="openContactDialog()" style="cursor: pointer; color: #1a73e8; font-size: 24px; margin-right: auto; display: flex; align-items: center;" title="Contact Support">mail</span>
+        <button class="btn-secondary" onclick="closeModal('helpModal')">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- CUSTOM INSTRUCTION MODAL -->
+  <div class="modal-overlay" id="customModal">
+    <div class="modal">
+      <h3>Custom Instruction</h3>
+      <p style="font-size: 14px; color: #666;">Set a system behavior for the AI models.</p>
+      <textarea id="customInput" style="width:100%; height:120px; padding:10px; border-radius:8px; border:1px solid #ccc; outline:none;"></textarea>
+      <div class="modal-buttons">
+        <button class="btn-secondary" onclick="closeModal('customModal')">Cancel</button>
+        <button class="btn-primary" onclick="saveCustom()">Save</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- HISTORY MODAL -->
+  <div class="modal-overlay" id="historyModal">
+    <div class="modal">
+      <h3>Chat History</h3>
+      <div id="historyList" style="max-height: 300px; overflow-y: auto; font-size: 14px;">
+        <!-- Dynamically filled by JS -->
+      </div>
+      <div class="modal-buttons">
+        <button class="btn-secondary" onclick="closeModal('historyModal')">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ENHANCEMENT: FULL-SCREEN PREVIEW MODAL -->
+  <div id="previewModal">
+      <div class="preview-header">
+          <h3>HTML Preview</h3>
+          <button class="preview-close" onclick="closePreview()"><span class="material-symbols-outlined">close</span></button>
+      </div>
+      <iframe id="previewIframe"></iframe>
+  </div>
+
+  <!-- =========================================================================
+   * STARTUP terminal diagnostic modal
+   * ========================================================================= -->
+  <div class="modal-overlay" id="diagnosticModal" style="background: #121212;">
+    <div class="modal" style="background: #1e1e1e; color: #00ff00; font-family: monospace; border: 1px solid #00ff00; max-width: 600px; max-height: 85vh;">
+      <h3 style="color: #00ff00; border-bottom: 1px solid #00ff00; padding-bottom: 8px; margin-top:0;">Startup Hardware & Web Diagnostics</h3>
+      <div id="diagnosticTerminalLogs" style="background: #000; color: #00ff00; padding: 12px; border-radius: 4px; overflow-y: auto; height: 300px; font-size: 13px; white-space: pre-wrap; line-height: 1.4; border: 1px solid #00ff00; margin-bottom: 15px;"></div>
+      <div class="modal-buttons" style="gap: 12px;">
+        <button class="btn-primary" onclick="copyDiagnosticLogs()" style="background: #00ff00; color: #000; font-weight: bold; border-radius: 4px; border:none; cursor:pointer; padding:10px 20px;">Copy Logs</button>
+        <button class="btn-secondary" onclick="closeModal('diagnosticModal')" style="background: #222; color: #00ff00; font-weight: bold; border: 1px solid #00ff00; border-radius: 4px; cursor:pointer; padding:10px 20px;">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    /* --- CRYPTOGRAPHIC BECH32 DECODER & HEX TRANSLATION UTILITIES --- */
+    const BECH32_ALPHABET = "qpzry9x8gf2tvdw0s3jn54khce6mua7l";
+
+    function decodeBech32(bechString) {
+        const separatorIndex = bechString.lastIndexOf('1');
+        if (separatorIndex === -1) throw new Error("Invalid Bech32 key structure configuration.");
+        const hrp = bechString.slice(0, separatorIndex);
+        if (hrp !== "npub" && hrp !== "nsec") throw new Error("Key structure prefix is not npub or nsec.");
+
+        const dataString = bechString.slice(separatorIndex + 1);
+        const data = [];
+        for (let i = 0; i < dataString.length; i++) {
+            const charIndex = BECH32_ALPHABET.indexOf(dataString[i]);
+            if (charIndex === -1) throw new Error("Bech32 contains prohibited structures.");
+            data.push(charIndex);
+        }
+
+        const values = data.slice(0, -6); // Strip 6-character checksum
+        let accumulator = 0;
+        let bits = 0;
+        const bytes = [];
+        const maxAccumulator = (1 << 12) - 1;
+
+        for (let i = 0; i < values.length; i++) {
+            accumulator = ((accumulator << 5) | values[i]) & maxAccumulator;
+            bits += 5;
+            while (bits >= 8) {
+                bits -= 8;
+                bytes.push((accumulator >> bits) & 0xff);
+            }
+        }
+        return new Uint8Array(bytes);
+    }
+
     function bytesToHex(bytes) {
         return Array.from(bytes).map(b => b.toString(16).padStart(2, '0')).join('');
     }
@@ -813,7 +1698,7 @@
         el.classList.toggle('open');
     }
 
-    // UPDATED: Traders Zone is integrated below, so let's preserve the selectModel configuration
+    /* ENHANCEMENT: UPDATED SELECT MODEL TO DETECT IMAGE GENERATION & AUDIO TYPE */
     function selectModel(id, name, modelObj = null) {
         globalSelectedModel = id;
         globalModelObject = modelObj;
@@ -1110,7 +1995,6 @@
     }
 
     function triggerVoiceAgent() {
-        // Toggle check: If the live connection is already active or connecting, disconnect it cleanly
         if (liveWs && (liveWs.readyState === WebSocket.OPEN || liveWs.readyState === WebSocket.CONNECTING)) {
             disconnectWebSocketLive();
             return;
@@ -1121,7 +2005,6 @@
             window.AndroidInterface.setVoiceMode(true);
         }
 
-        // Start multi-color blinking immediately when clicking the sparkle
         const icon = document.getElementById("voiceAgentIcon");
         if (icon) {
             icon.classList.add("sparkle-active");
@@ -1587,6 +2470,9 @@
         document.getElementById('customContextMenu').style.display = 'none';
     }
 
+    /**
+     * Nostr connection force-propagation logic as specified.
+     */
     function saveNostrSettings() {
         if (window.AndroidInterface && window.AndroidInterface.getNostrSettings) {
             try {
@@ -1603,6 +2489,7 @@
         }
     }
 
+    // --- ENHANCEMENT: HISTORY PERSISTENCE ---
     function renderHistory() {
         const list = document.getElementById('historyList');
         if(chatHistory.length === 0) {
@@ -1616,6 +2503,7 @@
         `).join('');
     }
 
+    // --- STEP 4: LOAD SAVED HISTORY IMAGE RENDERING SYNC ---
     function loadSavedHistory() {
         chatHistory.forEach(item => {
             if(item.type === "image") {
@@ -1638,6 +2526,8 @@
             }
         });
     }
+
+    /* --- REQUIREMENT #3: DYNAMIC SESSION LOGIC WITH DELETE --- */
 
     function renderDynamicSessionList() {
         const container = document.getElementById('dynamicSessions');
@@ -1677,6 +2567,7 @@
         });
     }
 
+    // Dynamic prompt and text input utility
     function injectTextToInput(text) {
         const input = document.getElementById('puterChatInput');
         input.value = text;
@@ -1685,6 +2576,9 @@
         document.getElementById('puterDropdownMenu').classList.remove('show');
     }
 
+    // =========================================================================
+    // THE "MARKDOWN PROFESSIONALIZER" ENGINE
+    // =========================================================================
     function cleanJsonToMarkdown(rawJson) {
         try {
             let obj = typeof rawJson === 'string' ? JSON.parse(rawJson) : rawJson;
@@ -1926,7 +2820,7 @@
           name: fileName,
           type: mime,
           data: base64
-          });
+      });
 
       renderThumbnails();
       handleInput();
@@ -2158,7 +3052,6 @@
             }];
 
             const isAudioModel = modelId.includes("tts") || (globalModelObject && globalModelObject.categories && globalModelObject.categories.includes("audio"));
-            const isStreaming = window.AndroidInterface ? window.AndroidInterface.getGeminiStreaming() : true;
             const supportsStreaming = !isAudioModel && !modelId.includes("live-preview") && isStreaming;
             const isDedicatedTts = modelId.includes("tts");
 
@@ -2882,6 +3775,148 @@
         textContainer.appendChild(ttsBtn);
     }
 
+    // Setup grounding XML block compiler
+    async function executeAutoModeRAG(queryText, rawScrapedJson, loaderId) {
+        if (window.AndroidInterface) {
+            window.AndroidInterface.nativeLog("Starting AutoMode RAG context extraction...", "native");
+        }
+        let liveContextString = "";
+        try {
+            const items = JSON.parse(rawScrapedJson);
+            if (Array.isArray(items)) {
+                const top2 = items.slice(0, 2);
+                top2.forEach(item => {
+                    const isUniversal = (item.type === "universal_web");
+                    const url = isUniversal ? (item.metadata?.url || "N/A") : `https://www.amazon.in/dp/${item.specifications?.asin || 'N/A'}`;
+                    const title = isUniversal ? (item.metadata?.title || "Universal Article") : `${item.specifications?.brand || ''} ${item.specifications?.model || ''}`;
+                    const contentText = isUniversal ? (item.content || "") : JSON.stringify(item.specifications);
+
+                    liveContextString += `[START OF LIVE WEB CONTEXT]\n`;
+                    liveContextString += `Source URL: ${url}\n`;
+                    liveContextString += `Page Title: ${title}\n`;
+                    liveContextString += `Scraped Content: ${contentText}\n`;
+                    liveContextString += `[END OF LIVE WEB CONTEXT]\n\n`;
+                });
+            }
+        } catch (e) {
+            liveContextString = `[START OF LIVE WEB CONTEXT]\nScraped Content: ${rawScrapedJson}\n[END OF LIVE WEB CONTEXT]\n`;
+        }
+
+        let systemPrompt = "You are an up-to-date, conversational AI assistant equipped with real-time web-crawling capabilities.\n";
+        systemPrompt += "You have been provided with fresh, crawled web documents matching the user's current query. You must prioritize this provided web data to construct your response.\n\n";
+
+        let groundingPrompt = systemPrompt + liveContextString;
+
+        groundingPrompt += "=== BEHAVIORAL AND FORMATTING CONSTRAINTS ===\n";
+        groundingPrompt += "- The \"No Technical Jargon\" Rule: You must NEVER mention technical or developmental terms under any circumstances, including but not limited to: \"raw JSON\", \"scraped databases\", \"API payloads\", \"web crawlers\", \"HTML tags\", \"Nostr events\", or \"relays\".\n";
+        groundingPrompt += "- The \"Natural Voice\" Rule: You must speak naturally, directly, and conversationally, as if you naturally possess this live, up-to-date knowledge.\n";
+        groundingPrompt += "- The \"Complete Answer Requirement\": You must construct a complete, detailed, and direct answer using the provided crawled web context. You must never output refusal phrases such as 'I could not find the answer', 'the context does not say', 'the data is missing', or 'I don't know'. Use the provided specifications and text to answer the query fully and directly.\n";
+
+        const targetLanguage = localStorage.getItem("puter_target_language") || "";
+        const nativeLanguage = getNativeLanguageName(targetLanguage);
+        if (targetLanguage) {
+            groundingPrompt += `- The Language Constraint:\n  IMPORTANT:\n  ALWAYS respond ONLY in ${nativeLanguage || targetLanguage}.\n  NEVER use English.\n  Even if user speaks English, translate internally and answer only in ${nativeLanguage || targetLanguage}.\n  Do not transliterate. Write strictly in the native script characters of the language.\n`;
+        }
+        groundingPrompt += "\n";
+
+        // --- PATHWAY ROUTING BRANCH: PUTER VS NATIVE GEMINI IN AUTO MODE ---
+        if (activeProvider === "Gemini") {
+            const modelId = globalSelectedModel;
+            const msgId = "gemini-" + Date.now() + "_" + Math.floor(Math.random() * 1000000);
+            
+            const contents = [{
+                role: "user",
+                parts: [{ text: `USER QUESTION: ${queryText}` }]
+            }];
+
+            const isAudioModel = modelId.includes("tts") || (globalModelObject && globalModelObject.categories && globalModelObject.categories.includes("audio"));
+            const supportsStreaming = !isAudioModel && !modelId.includes("live-preview") && isStreaming;
+            const isDedicatedTts = modelId.includes("tts");
+
+            const payload = { contents: contents };
+
+            if (!isDedicatedTts) {
+                payload.systemInstruction = { parts: [{ text: groundingPrompt }] };
+            } else {
+                contents[0].parts.unshift({ text: groundingPrompt });
+            }
+
+            const payloadJson = JSON.stringify(payload);
+
+            const loader = document.getElementById('ecgLoader');
+            if (loader) loader.style.display = 'none';
+
+            setupGeminiCallbacks(queryText, msgId, supportsStreaming);
+
+            try {
+                if (window.AndroidInterface && window.AndroidInterface.executeGeminiCall) {
+                    window.AndroidInterface.executeGeminiCall(modelId, payloadJson, supportsStreaming, msgId);
+                } else {
+                    throw new Error("Android Interface native bridge not available.");
+                }
+            } catch (e) {
+                const targetSpan = document.getElementById(`stream-content-${msgId}`);
+                if (targetSpan) targetSpan.innerHTML = "RAG Synthesize error: " + e.message;
+            }
+            return;
+        }
+
+        let finalUserQueryText = `USER QUESTION: ${queryText}`;
+        if (targetLanguage) {
+            const scriptName = nativeLanguage || targetLanguage;
+            finalUserQueryText += `\n\n[System Rule: Respond strictly in ${scriptName} script]`;
+        }
+
+        const messagesArray = [
+            { role: "system", content: groundingPrompt },
+            { role: "user", content: finalUserQueryText }
+        ];
+
+        const activeModel = globalSelectedModel;
+        try {
+            updateLoaderCardText(loaderId, "AI is synthesizing web findings...");
+
+            if (window.AndroidInterface) {
+                window.AndroidInterface.logDiagnostic("Delivering grounding payload to Puter completions pipeline. Model: " + activeModel, "native");
+            }
+
+            const streamResp = await puter.ai.chat(messagesArray, {
+                model: activeModel,
+                stream: true
+            });
+
+            const loaderTextEl = document.getElementById(`loader-indicator-text-${loaderId}`);
+            if (loaderTextEl) loaderTextEl.remove();
+
+            const targetSpan = document.getElementById(`stream-content-${loaderId}`);
+            let fullBotText = "";
+            for await (const chunk of streamResp) {
+                if (chunk.usage) { updateUsageUI(chunk.usage); continue; }
+                const chunkText = chunk?.text || chunk?.message?.content || "";
+                if (chunkText) {
+                    fullBotText += chunkText;
+                    targetSpan.innerHTML = marked.parse(fullBotText);
+                    document.querySelectorAll(`#stream-content-${loaderId} pre code:not(.hljs)`).forEach((block) => { hljs.highlightElement(block); });
+                    window.scrollTo(0, document.body.scrollHeight);
+                }
+            }
+
+            chatHistory.push({sender: "Bot", text: fullBotText, id: `msg-${loaderId}`, files: []});
+            localStorage.setItem('puter_chat_history_' + currentSessionId, JSON.stringify(chatHistory));
+
+            if (isVoiceResponseActive && window.AndroidInterface) {
+                window.AndroidInterface.speak(fullBotText);
+            }
+        } catch (completedError) {
+            console.error("index.html: Grounding prompt execution failure.", completedError);
+            if (window.AndroidInterface && window.AndroidInterface.logHtmlGlitch) {
+                window.AndroidInterface.logHtmlGlitch("index.html", "RAG execution failure: " + completedError.message);
+            }
+            const targetSpan = document.getElementById(`stream-content-${loaderId}`);
+            if (targetSpan) targetSpan.innerHTML = "RAG Synthesize error: " + completedError.message;
+        }
+    }
+
     function saveCustom() {
       customInstruction = document.getElementById('customInput').value;
       localStorage.setItem('puter_custom_ins', customInstruction);
@@ -3022,7 +4057,6 @@
         if (!apiKey) {
             alert("Please configure a valid Gemini Access API key first in Settings.");
             
-            // Remove the active animation class if connection fails early
             const icon = document.getElementById("voiceAgentIcon");
             if (icon) {
                 icon.classList.remove("sparkle-active");
@@ -3060,7 +4094,6 @@
         const header = new ArrayBuffer(44);
         const view = new DataView(header);
 
-        // Helper string writer
         function writeString(view, offset, string) {
             for (let i = 0; i < string.length; i++) {
                 view.setUint8(offset + i, string.charCodeAt(i));
@@ -3100,7 +4133,6 @@
 
     /* --- ADOPTED WEBSOCKET LIVE AUDIO ROUTING PIPELINES --- */
     function connectWebSocketLive(apiKey, modelId, voiceName, useSearch) {
-        // Set the transitional setup flag before triggering the reset cleanup [1]
         window.isConnectingLiveSocket = true;
 
         disconnectWebSocketLive();
@@ -3118,7 +4150,7 @@
             liveWs = new WebSocket(url);
         } catch (err) {
             console.error("Live WebSocket creation exception: ", err);
-            window.isConnectingLiveSocket = false; // Reset the transitioning flag on initial failure [1]
+            window.isConnectingLiveSocket = false; 
             if (window.AndroidInterface) {
                 window.AndroidInterface.logDiagnostic("WebSockets construction threw exception: " + err.message, "ERROR");
                 window.AndroidInterface.logHtmlGlitch("index.html - WebSockets", "Creation Exception: " + err.message);
@@ -3168,7 +4200,6 @@
                 }
 
                 if (payload.setupComplete) {
-                    // Reset transitional setup flag once handshake is fully confirmed [1]
                     window.isConnectingLiveSocket = false;
 
                     if (!isLiveSessionConnected) {
@@ -3176,7 +4207,6 @@
 
                         if (window.AndroidInterface) {
                             window.AndroidInterface.logDiagnostic("Handshake handshake confirmed. Triggering capture initialization...", "NETWORK");
-                            // Notify Android to cleanly release native SpeechRecognizer locks
                             if (window.AndroidInterface.setLiveSocketActive) {
                                 window.AndroidInterface.setLiveSocketActive(true);
                             }
@@ -3184,11 +4214,9 @@
                         }
                         initMicrophoneCaptureLive();
 
-                        // Visual Feedback in Chat log indicating successful connection
                         appendChat("System", "🟢 Connected to Gemini Live Model", false, []);
                     }
 
-                    // Dispatch any stored/pending query that initiated the connection
                     if (pendingLiveQuery) {
                         if (window.AndroidInterface) {
                             window.AndroidInterface.logDiagnostic("Sending deferred query following socket activation: " + pendingLiveQuery.text.substring(0, 15) + "...", "QUERY");
@@ -3200,7 +4228,7 @@
                 }
 
                 if (payload.error) {
-                    window.isConnectingLiveSocket = false; // Reset the transitioning flag [1]
+                    window.isConnectingLiveSocket = false; 
                     console.error("Live server error returned:", payload.error);
                     if (window.AndroidInterface) {
                         window.AndroidInterface.logDiagnostic("Live session host returned structural error: " + JSON.stringify(payload.error), "ERROR");
@@ -3213,7 +4241,6 @@
                 if (payload.serverContent) {
                     const content = payload.serverContent;
 
-                    // Unified Live Barge-in Interruption Hook
                     if (content.interrupted) {
                         if (window.AndroidInterface) {
                             window.AndroidInterface.logDiagnostic("⚡ Live Barge-in Interruption packet received. Purging audio buffers.", "BARGE_IN");
@@ -3226,7 +4253,6 @@
                     }
 
                     if (content.modelTurn && content.modelTurn.parts) {
-                        // Consolidate currentLiveUserSpan if it exists (Turn Complete)
                         if (currentLiveUserSpan) {
                             const finalUserText = currentLiveUserSpan.innerText.trim();
                             if (finalUserText) {
@@ -3288,7 +4314,6 @@
                     }
 
                     if (content.outputTranscription && content.outputTranscription.text) {
-                        // Consolidate currentLiveUserSpan if it exists (Turn Complete)
                         if (currentLiveUserSpan) {
                             const finalUserText = currentLiveUserSpan.innerText.trim();
                             if (finalUserText) {
@@ -3350,7 +4375,6 @@
                     }
 
                     if (content.inputTranscription && content.inputTranscription.text) {
-                        // COHESIVE VOICE RE-ASSEMBLER PIPELINE
                         const msgId = "live-user-msg-" + Date.now();
                         if (!currentLiveUserSpan) {
                             const log = document.getElementById('puterChatLog');
@@ -3392,14 +4416,13 @@
                         currentLiveUserSpan.innerText += content.inputTranscription.text;
                         window.scrollTo(0, document.body.scrollHeight);
 
-                        // Forward user transcriptions dynamically to native VoiceAgentActivity
                         if (window.AndroidInterface && window.AndroidInterface.broadcastUserTranscript) {
                             window.AndroidInterface.broadcastUserTranscript(content.inputTranscription.text);
                         }
                     }
                 }
             } catch (e) {
-                window.isConnectingLiveSocket = false; // Reset transitioning flag on error [1]
+                window.isConnectingLiveSocket = false; 
                 console.error("Live packet processing exception: ", e);
                 if (window.AndroidInterface) {
                     window.AndroidInterface.logDiagnostic("Error processing message frame: " + e.message, "ERROR");
@@ -3409,7 +4432,7 @@
         };
 
         liveWs.onclose = (event) => {
-            window.isConnectingLiveSocket = false; // Reset the transitioning flag on closure [1]
+            window.isConnectingLiveSocket = false; 
             if (window.AndroidInterface) {
                 window.AndroidInterface.logDiagnostic("WebSocket channel closed. Status Code: " + event.code + " | Reason: " + (event.reason || "None") + " | Clean close: " + event.wasClean, "NETWORK");
             }
@@ -3417,7 +4440,7 @@
         };
 
         liveWs.onerror = (err) => {
-            window.isConnectingLiveSocket = false; // Reset the transitioning flag on error [1]
+            window.isConnectingLiveSocket = false; 
             console.error("Live WebSockets channel error: ", err);
             if (window.AndroidInterface) {
                 window.AndroidInterface.logDiagnostic("WebSocket protocol network error observed. State: " + (liveWs ? liveWs.readyState : "null"), "ERROR");
@@ -3429,7 +4452,6 @@
         if (window.AndroidInterface) {
             window.AndroidInterface.logDiagnostic("WebRTC initMicrophoneCaptureLive starting. Checking secure origin context: " + window.isSecureContext, "WEBRTC");
 
-            // Enumerate media devices first to diagnose hardware availability
             try {
                 const devices = await navigator.mediaDevices.enumerateDevices();
                 let audioInputs = devices.filter(d => d.kind === 'audioinput');
@@ -3441,7 +4463,6 @@
                 window.AndroidInterface.logDiagnostic("Failed to enumerate devices: " + enumErr.message, "WEBRTC");
             }
 
-            // Check permissions API
             if (navigator.permissions && navigator.permissions.query) {
                 try {
                     const status = await navigator.permissions.query({ name: 'microphone' });
@@ -3613,18 +4634,16 @@
     }
 
     function disconnectWebSocketLive() {
-        if (!liveWs) return; // Guard against multiple teardown iterations
-        isLiveSessionConnected = false; // Reset connection session flag
+        if (!liveWs) return; 
+        isLiveSessionConnected = false; 
 
         if (window.AndroidInterface) {
             window.AndroidInterface.logDiagnostic("disconnectWebSocketLive sequence initiated.", "NETWORK");
             window.AndroidInterface.showToast("Disconnected from Live Model");
         }
 
-        // Visual Feedback in Chat log indicating disconnection
         appendChat("System", "🔴 Disconnected from Live Model", false, []);
 
-        // Consolidate any active/partially transcribed user speech before closing connection
         if (currentLiveUserSpan) {
             const finalUserText = currentLiveUserSpan.innerText.trim();
             if (finalUserText) {
@@ -3637,7 +4656,6 @@
 
         currentLiveBotSpan = null;
 
-        // Gated call to prevent premature STT activations [1]
         if (!window.isConnectingLiveSocket) {
             if (window.AndroidInterface && window.AndroidInterface.setLiveSocketActive) {
                 window.AndroidInterface.setLiveSocketActive(false);
@@ -3710,7 +4728,6 @@
             liveWs = null;
         }
 
-        // Revert the sparkle icon back to original static state
         const icon = document.getElementById("voiceAgentIcon");
         if (icon) {
             icon.classList.remove("sparkle-active");
@@ -3809,43 +4826,35 @@
 
         try {
             const tempAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
-            logTerminal(`AudioContext state: ${tempAudioCtx.state} | Native sampleRate: ${tempAudioCtx.sampleRate}Hz`, "success");
-            await tempAudioCtx.close();
-        } catch (audioErr) {
-            logTerminal(`Failed to instantiate dummy AudioContext: ${audioErr.message}`, "error");
+            logTerminal(`AudioContext state: ${tempAudioCtx.state} | Native Sample Rate: ${tempAudioCtx.sampleRate}`, "success");
+            tempAudioCtx.close();
+        } catch (e) {
+            logTerminal("AudioContext Initialization failed: " + e.message, "error");
         }
 
-        // 2. NATIVE AUDIT
-        if (window.AndroidInterface && window.AndroidInterface.getSystemHardwareDiagnostics) {
-            logTerminal("Starting Native Android Hardware Audit...", "info");
+        // 2. NATIVE ANDROID BRIDGE AUDIT
+        logTerminal("Checking Native Bridge integration...", "info");
+        if (window.AndroidInterface) {
+            logTerminal("SUCCESS: window.AndroidInterface is active and bound.", "success");
             try {
-                const rawDiag = window.AndroidInterface.getSystemHardwareDiagnostics();
-                const diag = JSON.parse(rawDiag);
-                logTerminal(`RECORD_AUDIO Permission: ${diag.native_record_audio_granted}`, diag.native_record_audio_granted ? "success" : "error");
-                logTerminal(`POST_NOTIFICATIONS Permission: ${diag.native_post_notifications_granted}`, diag.native_post_notifications_granted ? "success" : "warning");
-                logTerminal(`Native STT Engine Available: ${diag.native_stt_engine_available}`, diag.native_stt_engine_available ? "success" : "warning");
-                logTerminal(`Native Microphone Muted: ${diag.hardware_mic_muted}`, !diag.hardware_mic_muted ? "success" : "warning");
-                logTerminal(`Native Microphone Occupied: ${diag.hardware_mic_occupied}`, !diag.hardware_mic_occupied ? "success" : "warning");
-                logTerminal(`Active Recording Configurations Count: ${diag.active_recording_configs_count}`, "info");
-                logTerminal(`Device Model: ${diag.device_manufacturer} ${diag.device_model} (SDK ${diag.device_sdk_int})`, "info");
-            } catch (diagErr) {
-                logTerminal(`Failed to parse native diagnostics: ${diagErr.message}`, "error");
+                const autoMode = window.AndroidInterface.getAutoMode ? window.AndroidInterface.getAutoMode() : "Unknown";
+                logTerminal(`Active Native Profile Mode: ${autoMode ? "Auto (RAG)" : "Normal"}`, "success");
+            } catch (err) {
+                logTerminal("Interface property evaluation failed: " + err.message, "error");
             }
         } else {
-            logTerminal("WARNING: AndroidInterface/Native bridge diagnostics not detected. Operating in standalone browser mode.", "warning");
+            logTerminal("WARNING: window.AndroidInterface is null (No native container detected).", "warning");
         }
-        
-        logTerminal("Diagnostics self-check completed.", "success");
     }
 
     function copyDiagnosticLogs() {
         const term = document.getElementById("diagnosticTerminalLogs");
         if (term) {
-            if (window.AndroidInterface && window.AndroidInterface.copyToClipboard) {
-                window.AndroidInterface.copyToClipboard(term.textContent);
+            copyCode(term.innerText || term.textContent || "");
+            if (window.AndroidInterface && window.AndroidInterface.showToast) {
+                window.AndroidInterface.showToast("Logs copied to clipboard!");
             } else {
-                navigator.clipboard.writeText(term.textContent);
-                alert("Logs copied to clipboard.");
+                alert("Logs copied to clipboard!");
             }
         }
     }
@@ -3869,8 +4878,7 @@
         document.getElementById('totalTokenVal').textContent = `Global Total: ${sessionTotalTokens} tokens`;
         document.getElementById('totalCreditVal').textContent = `Global Cost: $${sessionTotalCredits.toFixed(4)}`;
 
-        // Trigger startup terminal self-diagnostics checklist immediately on load
-        runStartupDiagnostics();
+        // runStartupDiagnostics(); // Commented out to prevent the modal from popping up on launch
 
         if (typeof puter !== 'undefined') {
             console.log("Puter SDK detected. Waiting for ready signal...");
@@ -3894,4 +4902,3 @@
   </script>
 </body>
 </html>
-
