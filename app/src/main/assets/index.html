@@ -5,6 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <meta http-equiv="X-UA-Compatible" content="IE=edge">
   <title>Puter Unofficial</title>
+  <!-- DIAGNOSTIC CONSOLE: Must load first to capture all events -->
+  <script src="debug_console.js"></script>
   <!-- SDK loaded without async to ensure availability for sync initialization -->
   <script src="https://js.puter.com/v2/"></script>
   <script src="https://cdn.jsdelivr.net/npm/marked@4.0.0/marked.min.js"></script>
@@ -2200,7 +2202,7 @@
             updateLoaderCardText(loaderId, "AI is synthesizing web findings...");
 
             if (window.AndroidInterface) {
-                window.AndroidInterface.nativeLog("Delivering grounding payload to Puter completions pipeline. Model: " + activeModel, "native");
+                window.AndroidInterface.nativeLog("Delivering grounding grounding payload to Puter completions pipeline. Model: " + activeModel, "native");
             }
 
             // Standardize RAG output as messages array to avoid system-message proxy omissions
@@ -2234,7 +2236,7 @@
                 window.AndroidInterface.speak(fullBotText);
             }
         } catch (completedError) {
-            console.error("index.html: Grounding grounding prompt execution failure.", completedError);
+            console.error("index.html: Grounding prompt execution failure.", completedError);
             if (window.AndroidInterface && window.AndroidInterface.logHtmlGlitch) {
                 window.AndroidInterface.logHtmlGlitch("index.html", "RAG execution failure: " + completedError.message);
             }
@@ -2696,7 +2698,7 @@
         div.onpointercancel = () => {
             if (pressTimer) { clearTimeout(pressTimer); pressTimer = null; }
         };
-        div.oncontextmenu = (e) => e.preventDefault(); 
+        div.oncontextmenu = (e) => e.preventDefault();
 
         div.innerHTML = `<div class="message-content"><b>Bot:</b><br><span id="stream-content-${msgId}">Thinking...</span></div>`;
         log.appendChild(div);
@@ -3695,14 +3697,19 @@
         nextPlayTime = 0;
     }
 
-    // Group all initialization actions together in one function
-    function initializeApp() {
+    // Execute immediately on load
+    window.onload = () => {
+        console.log("Page Lifecycle: ONLOAD on Secure Origin");
+
+        // FIX: Load Models IMMEDIATELY before waiting for SDK
         loadModels();
+
         syncAuthSession();
         loadSavedHistory();
         loadNostrIdentityInUI(); // Load keys dynamically on initial layout render
+        document.getElementById('customInput').value = customInstruction;
 
-        // Language target key input hydration
+        // Specification 1: Language target key input hydration
         const savedLanguageSetting = localStorage.getItem("puter_target_language") || "";
         const languageInputContainer = document.getElementById("modelLanguageInput");
         if (languageInputContainer) {
@@ -3722,23 +3729,8 @@
         } else {
             console.error("CRITICAL: Puter.js SDK failed to load on this origin!");
         }
-    }
-
-    // Safely wait for window.AndroidInterface to be injected before running the app
-    window.onload = () => {
-        console.log("Page Lifecycle: ONLOAD on Secure Origin");
-        document.getElementById('customInput').value = customInstruction;
-
-        let checkAttempts = 0;
-        const bridgeCheckInterval = setInterval(() => {
-            // Wait for WebView bridge injection, or timeout after 1 second
-            if (window.AndroidInterface || checkAttempts > 20) {
-                clearInterval(bridgeCheckInterval);
-                initializeApp();
-            }
-            checkAttempts++;
-        }, 50); // Checks every 50ms
     };
   </script>
 </body>
 </html>
+
