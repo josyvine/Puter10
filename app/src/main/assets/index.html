@@ -2696,7 +2696,7 @@
         div.onpointercancel = () => {
             if (pressTimer) { clearTimeout(pressTimer); pressTimer = null; }
         };
-        div.oncontextmenu = (e) => e.preventDefault();
+        div.oncontextmenu = (e) => e.preventDefault(); 
 
         div.innerHTML = `<div class="message-content"><b>Bot:</b><br><span id="stream-content-${msgId}">Thinking...</span></div>`;
         log.appendChild(div);
