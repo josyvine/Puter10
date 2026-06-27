@@ -4,14 +4,12 @@
  * Features: Floating UI, Minimize, Close, Full Screen.
  * 
  * UPDATED: Optimized for Secure Origin (HTTPS) environment.
- * HIDE UPDATE: Disabled visual overlay to clean up landing page.
  */
 (function() {
     // 1. Create and Inject the Console Styles
     const style = document.createElement('style');
     style.innerHTML = `
         #puter-debug-console {
-            display: none !important;
             position: fixed;
             bottom: 80px;
             right: 10px;
